@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "themixify",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-25",
+
+  // Next.js runs on Node APIs, so the Worker needs the Node compatibility
+  // layer. "global_fetch_strictly_public" makes fetch() inside the Worker
+  // behave the way it does everywhere else — requests to our own hostname go
+  // out to the public internet rather than looping back internally.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  // Static assets (the prerendered pages, CSS and JS) are served straight from
+  // Cloudflare's edge; the Worker only runs for the handful of dynamic routes.
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

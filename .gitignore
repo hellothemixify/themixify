@@ -37,3 +37,7 @@ yarn-error.log*
 
 # local tooling
 .claude/
+
+# cloudflare / opennext build output
+.open-next/
+.wrangler/
