@@ -624,3 +624,267 @@ update public.profiles
    set role = 'admin'
  where lower(email) = lower('itsinjamul@gmail.com')
    and role <> 'admin';
+
+/* ==========================================================================
+   LICENCE ENFORCEMENT
+   ==========================================================================
+   Everything above describes what a customer bought. This part describes what
+   a WordPress install is allowed to do with it, and it is the half that has to
+   survive somebody actively trying to get around it.
+
+   Two things worth stating plainly, because a licence system that oversells
+   itself is worse than one that does not exist:
+
+   1. This makes unauthorised use detectable, revocable and inconvenient. It
+      does not make it impossible. The theme is PHP on somebody else's server —
+      they can open the file and delete the check. No WordPress licence system
+      has ever solved that, and any vendor claiming otherwise is either using an
+      encoder most shared hosts cannot run, or is lying.
+
+   2. What it does solve is the realistic case: a key shared between friends, a
+      single purchase used across fifty client sites, a file passed on after a
+      refund. Those all phone home, and all of them can be shut off from here.
+
+   The signing key is deliberately absent from this file. Responses are signed
+   with an Ed25519 private key that lives only as a Worker secret; the theme
+   ships the matching public key. That asymmetry is the point — a shared secret
+   would be inside every copy of the theme, and anyone could forge a "valid"
+   response with it.
+   ========================================================================== */
+
+-- A site can be blocked on its own, without touching the licence it belongs to.
+-- Needed for the common support case: one of a customer's ten sites is a copy
+-- they were not entitled to, and revoking the whole key would punish nine
+-- innocent installs.
+alter table public.license_activations
+  drop constraint if exists license_activations_status_check;
+
+alter table public.license_activations
+  add constraint license_activations_status_check
+  check (status in ('active', 'released', 'blocked'));
+
+-- Fingerprint of the install, so the same site moving hosts is recognisable and
+-- two different installs claiming the same URL are not silently merged.
+alter table public.license_activations
+  add column if not exists site_hash    text,
+  add column if not exists wp_version   text,
+  add column if not exists theme_version text,
+  add column if not exists last_ip      inet,
+  add column if not exists check_count  integer not null default 0;
+
+-- Every call the theme makes, including the ones that fail ------------------
+-- The failures are the interesting rows. A key that does not exist, a site over
+-- its limit, or one key checking in from thirty domains in an afternoon are all
+-- visible here and nowhere else.
+create table if not exists public.license_checks (
+  id          uuid        primary key default gen_random_uuid(),
+  license_key text,
+  license_id  uuid        references public.licenses (id) on delete set null,
+  site_url    text,
+  action      text        not null check (action in ('activate', 'validate', 'deactivate')),
+  outcome     text        not null
+                check (outcome in ('ok', 'unknown_key', 'revoked', 'blocked',
+                                   'limit_reached', 'site_mismatch', 'malformed')),
+  ip          inet,
+  user_agent  text,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists license_checks_key_idx     on public.license_checks (license_key);
+create index if not exists license_checks_outcome_idx on public.license_checks (outcome, created_at desc);
+create index if not exists license_checks_site_idx    on public.license_checks (lower(site_url));
+
+-- Nobody reads this table through the public API. Admins read it through the
+-- dashboard; the licence endpoints write to it with the service role, which
+-- bypasses RLS by design. So: deny by default, and grant only to admins.
+alter table public.license_checks enable row level security;
+
+drop policy if exists "admins read license checks" on public.license_checks;
+create policy "admins read license checks"
+  on public.license_checks for select
+  using (public.is_admin());
+
+/* Suspicious activity, ready to read ----------------------------------------
+   A licence checking in from more domains than it is allowed to run on is the
+   single clearest signal of a shared key, and it is the one number a support
+   person actually needs. Computed rather than stored, so it cannot go stale. */
+create or replace view public.license_abuse_signals as
+select
+  l.id                                          as license_id,
+  l.license_key,
+  l.status,
+  l.sites_allowed,
+  p.email                                       as owner_email,
+  count(distinct lower(c.site_url))             as distinct_sites_seen,
+  count(*) filter (where c.outcome <> 'ok')     as failed_checks,
+  max(c.created_at)                             as last_seen_at
+from public.licenses l
+join public.profiles p on p.id = l.user_id
+left join public.license_checks c on c.license_id = l.id
+group by l.id, l.license_key, l.status, l.sites_allowed, p.email
+having count(distinct lower(c.site_url)) > l.sites_allowed;
+/* The licence check itself, as one database function -------------------------
+   The obvious way to write this endpoint is to give the Worker a service-role
+   key and let it query the tables directly. That works, and it hands a public
+   HTTP endpoint the ability to read and write every row in the database —
+   including every customer's email and order history — in order to answer a
+   question about one licence key.
+
+   A security-definer function is the narrow version of the same thing. The anon
+   key can call exactly this, it does exactly this, and it can do nothing else.
+   If the endpoint is ever compromised the blast radius is the licence logic
+   rather than the whole schema.
+
+   It also keeps the rule in one place. The endpoint decides nothing: it passes
+   through a key, a site and an action, and reports what came back. */
+create or replace function public.license_check(
+  p_key    text,
+  p_site   text,
+  p_action text,
+  p_meta   jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_license public.licenses%rowtype;
+  v_row     public.license_activations%rowtype;
+  v_active  integer;
+  v_found   boolean := false;
+begin
+  if p_action not in ('activate', 'validate', 'deactivate')
+     or coalesce(p_key, '') = ''
+     or coalesce(p_site, '') = '' then
+    insert into public.license_checks (license_key, site_url, action, outcome)
+    values (p_key, p_site, coalesce(nullif(p_action, ''), 'validate'), 'malformed');
+
+    return jsonb_build_object(
+      'status', 'unknown', 'plan', null, 'sites_allowed', 0, 'sites_used', 0,
+      'message', 'Malformed request.');
+  end if;
+
+  select * into v_license from public.licenses where license_key = upper(p_key);
+
+  if not found then
+    insert into public.license_checks (license_key, site_url, action, outcome)
+    values (upper(p_key), p_site, p_action, 'unknown_key');
+
+    return jsonb_build_object(
+      'status', 'unknown', 'plan', null, 'sites_allowed', 0, 'sites_used', 0,
+      'message', 'That licence key was not recognised.');
+  end if;
+
+  if v_license.status <> 'active' then
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'revoked');
+
+    return jsonb_build_object(
+      'status', 'revoked', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', 0,
+      'message', 'This licence is no longer active.');
+  end if;
+
+  select * into v_row
+    from public.license_activations
+   where license_id = v_license.id and lower(site_url) = lower(p_site);
+  v_found := found;
+
+  select count(*) into v_active
+    from public.license_activations
+   where license_id = v_license.id and status = 'active';
+
+  /* A single site blocked without revoking the key. The usual support case is
+     one unauthorised copy among a customer's ten legitimate installs, and
+     revoking the key would take down the nine that did nothing wrong. */
+  if v_found and v_row.status = 'blocked' then
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'blocked');
+
+    return jsonb_build_object(
+      'status', 'blocked', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', v_active,
+      'message', 'This site has been blocked on this licence.');
+  end if;
+
+  if p_action = 'deactivate' then
+    if v_found then
+      update public.license_activations set status = 'released' where id = v_row.id;
+      if v_row.status = 'active' then
+        v_active := v_active - 1;
+      end if;
+    end if;
+
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'ok');
+
+    return jsonb_build_object(
+      'status', 'released', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', greatest(v_active, 0),
+      'message', 'This site has been released.');
+  end if;
+
+  /* Already activated here: record the check-in and say yes. */
+  if v_found and v_row.status = 'active' then
+    update public.license_activations
+       set last_check_at = now(),
+           check_count   = check_count + 1,
+           wp_version    = coalesce(p_meta ->> 'wp', wp_version),
+           theme_version = coalesce(p_meta ->> 'version', theme_version)
+     where id = v_row.id;
+
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'ok');
+
+    return jsonb_build_object(
+      'status', 'active', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', v_active,
+      'message', 'Licence active.');
+  end if;
+
+  /* New site for this licence, or one coming back after being released. */
+  if v_active >= v_license.sites_allowed then
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'limit_reached');
+
+    return jsonb_build_object(
+      'status', 'limit_reached', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', v_active,
+      'message', format('This licence covers %s site(s) and they are all in use. Release one from your dashboard, or upgrade.', v_license.sites_allowed));
+  end if;
+
+  if p_action <> 'activate' then
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'site_mismatch');
+
+    return jsonb_build_object(
+      'status', 'unknown', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', v_active,
+      'message', 'This site is not activated on that licence.');
+  end if;
+
+  if v_found then
+    update public.license_activations
+       set status = 'active', last_check_at = now(), check_count = check_count + 1
+     where id = v_row.id;
+  else
+    insert into public.license_activations
+      (license_id, site_url, site_name, wp_version, theme_version, last_check_at)
+    values
+      (v_license.id, p_site, left(coalesce(p_meta ->> 'name', ''), 200),
+       p_meta ->> 'wp', p_meta ->> 'version', now());
+  end if;
+
+  insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+  values (v_license.license_key, v_license.id, p_site, p_action, 'ok');
+
+  return jsonb_build_object(
+    'status', 'active', 'plan', v_license.plan_id,
+    'sites_allowed', v_license.sites_allowed, 'sites_used', v_active + 1,
+    'message', 'Licence activated for this site.');
+end;
+$fn$;
+
+/* Callable without a session: the caller is a WordPress install, not a person. */
+grant execute on function public.license_check(text, text, text, jsonb) to anon, authenticated;

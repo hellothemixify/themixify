@@ -44,3 +44,7 @@ yarn-error.log*
 
 # Reference material, not part of the site
 *.pdf
+
+# Licence signing key — never commit
+.license-signing-key
+.license-public-key
