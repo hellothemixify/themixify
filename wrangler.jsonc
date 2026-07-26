@@ -17,6 +17,23 @@
     "binding": "ASSETS"
   },
 
+  // Keep the workers.dev hostname alive alongside the custom domains. It is the
+  // only way in while DNS is propagating, and it stays useful afterwards as a
+  // way to hit the deployment directly without going through the domain.
+  "workers_dev": true,
+  "preview_urls": true,
+
+  // The production hostnames. Declared here rather than clicked into the
+  // dashboard so the routing lives in version control with everything else —
+  // a fresh clone can reproduce the whole deployment.
+  //
+  // www is attached too, and the app's canonical tags point every page at the
+  // apex, so the two hostnames never compete for the same ranking.
+  "routes": [
+    { "pattern": "themixify.com", "custom_domain": true },
+    { "pattern": "www.themixify.com", "custom_domain": true }
+  ],
+
   "observability": {
     "enabled": true
   }
