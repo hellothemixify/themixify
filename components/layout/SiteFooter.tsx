@@ -35,7 +35,7 @@ const COLUMNS = [
 
 export function SiteFooter() {
   return (
-    <footer className="mt-8 border-t border-hairline bg-white/70">
+    <footer className="defer-paint mt-8 border-t border-hairline bg-white/70">
       <div className="container-page py-14">
         <div className="grid gap-10 md:grid-cols-[1.4fr_repeat(3,1fr)]">
           <div>

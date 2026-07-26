@@ -95,7 +95,14 @@ export default function HomePage() {
               </ul>
             </div>
 
-            <HeroVisual />
+            {/* The illustration is roughly a hundred elements with per-element
+                gradients, and on a phone the grid stacks so it sits below the
+                fold anyway. Deferring its layout keeps it out of the way of the
+                headline's first paint; on a wide screen it is beside the
+                headline, in view, and renders immediately as normal. */}
+            <div className="defer-paint">
+              <HeroVisual />
+            </div>
           </div>
         </div>
       </section>
@@ -103,7 +110,7 @@ export default function HomePage() {
       {/* ================================================================
           STAT STRIP
           ================================================================ */}
-      <section className="py-8">
+      <section className="defer-paint py-8">
         <div className="container-page">
           <div className="surface-card grid grid-cols-2 gap-6 px-7 py-7 md:grid-cols-4">
             {STATS.map((stat) => (
