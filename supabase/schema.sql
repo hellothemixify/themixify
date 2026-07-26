@@ -1131,3 +1131,361 @@ update public.profiles
        approved_at     = coalesce(approved_at, created_at)
  where approval_status = 'pending'
    and created_at < now();
+/* ==========================================================================
+   TRIALS, PHONE NUMBERS AND THE DOWNLOAD
+   ==========================================================================
+   The trial is a licence key with an expiry date, not a separate concept.
+
+   That is the whole design decision here and it is worth defending. The theme
+   already knows how to hold a key, activate it against a site, revalidate it
+   and switch itself off when the answer stops being yes. Teaching it a second,
+   parallel notion of "trial" would mean two code paths that must agree, and the
+   one that gets tested less is the one customers meet on day seven.
+
+   So approval issues a real key on a `trial` plan that expires in seven days.
+   Everything downstream — activation, the site limit, revalidation, the admin
+   notice, the kill switch — works without knowing it is a trial at all. Buying
+   a licence swaps the plan and clears the expiry on the same row.
+   ========================================================================== */
+
+alter table public.licenses
+  add column if not exists expires_at timestamptz;
+
+create index if not exists licenses_expiry_idx on public.licenses (expires_at)
+  where expires_at is not null;
+
+/* The trial plan. sites_allowed is 1 on purpose: a trial is for trying the
+   theme on one site, and anyone who needs seven is not evaluating. */
+insert into public.plans (id, name, sites_allowed, price_cents, sort_order, is_active)
+values ('trial', '7-day trial', 1, 0, -1, true)
+on conflict (id) do update
+  set name = excluded.name,
+      sites_allowed = excluded.sites_allowed;
+
+/* Phone, captured at signup ---------------------------------------------------
+   The whole approval flow runs over WhatsApp, so an account without a number is
+   an account nobody can chase. */
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  insert into public.profiles (id, email, full_name, phone)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
+    nullif(new.raw_user_meta_data ->> 'phone', '')
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$fn$;
+
+/* Approval now issues the trial key ------------------------------------------
+   Idempotent: approving twice does not hand out a second key, and approving
+   somebody who already bought a licence does not overwrite it with a trial. */
+create or replace function public.approve_account(p_user_id uuid, p_trial_days integer default 7)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_has_license boolean;
+  v_days        integer := greatest(coalesce(p_trial_days, 7), 0);
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  update public.profiles
+     set approval_status = 'approved',
+         approved_at     = coalesce(approved_at, now()),
+         approved_by     = auth.uid(),
+         trial_ends_at   = coalesce(trial_ends_at, now() + make_interval(days => v_days))
+   where id = p_user_id;
+
+  select exists (select 1 from public.licenses where user_id = p_user_id)
+    into v_has_license;
+
+  if not v_has_license and v_days > 0 then
+    insert into public.licenses
+      (license_key, user_id, plan_id, sites_allowed, status, price_cents, paid_cents, expires_at, notes)
+    values
+      (public.generate_license_key(), p_user_id, 'trial', 1, 'active', 0, 0,
+       now() + make_interval(days => v_days), 'Issued automatically on approval');
+  end if;
+end;
+$fn$;
+
+grant execute on function public.approve_account(uuid, integer) to authenticated;
+
+/* Turn a trial into a real licence -------------------------------------------
+   Same row, same key. The customer does not have to re-activate anything on
+   their site — the next scheduled check simply starts coming back with a
+   bigger site allowance and no expiry. */
+create or replace function public.upgrade_license(
+  p_license_id uuid,
+  p_plan_id text,
+  p_price_cents integer default null,
+  p_paid_cents integer default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_sites integer;
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  select sites_allowed into v_sites from public.plans where id = p_plan_id;
+
+  if v_sites is null then
+    raise exception 'Unknown plan';
+  end if;
+
+  update public.licenses
+     set plan_id       = p_plan_id,
+         sites_allowed = v_sites,
+         status        = 'active',
+         expires_at    = null,
+         price_cents   = coalesce(p_price_cents, price_cents),
+         paid_cents    = coalesce(p_paid_cents,  paid_cents)
+   where id = p_license_id;
+end;
+$fn$;
+
+grant execute on function public.upgrade_license(uuid, text, integer, integer) to authenticated;
+
+/* The licence check now understands expiry ------------------------------------
+   Replaces the earlier version. Only the expiry branch is new; everything else
+   is unchanged, and it is repeated in full rather than patched because a
+   half-defined function is not a thing Postgres will let you have. */
+create or replace function public.license_check(
+  p_key    text,
+  p_site   text,
+  p_action text,
+  p_meta   jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_license public.licenses%rowtype;
+  v_row     public.license_activations%rowtype;
+  v_active  integer;
+  v_found   boolean := false;
+begin
+  if p_action not in ('activate', 'validate', 'deactivate')
+     or coalesce(p_key, '') = ''
+     or coalesce(p_site, '') = '' then
+    insert into public.license_checks (license_key, site_url, action, outcome)
+    values (p_key, p_site, coalesce(nullif(p_action, ''), 'validate'), 'malformed');
+    return jsonb_build_object('status', 'unknown', 'plan', null,
+      'sites_allowed', 0, 'sites_used', 0, 'message', 'Malformed request.');
+  end if;
+
+  select * into v_license from public.licenses where license_key = upper(p_key);
+
+  if not found then
+    insert into public.license_checks (license_key, site_url, action, outcome)
+    values (upper(p_key), p_site, p_action, 'unknown_key');
+    return jsonb_build_object('status', 'unknown', 'plan', null,
+      'sites_allowed', 0, 'sites_used', 0,
+      'message', 'That licence key was not recognised.');
+  end if;
+
+  if v_license.status <> 'active' then
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'revoked');
+    return jsonb_build_object('status', 'revoked', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', 0,
+      'message', 'This licence is no longer active.');
+  end if;
+
+  /* Expired trial. Reported as its own status rather than folded into
+     "revoked", because the two need completely different words in front of the
+     customer: one of them is being told their trial ended and here is where to
+     buy, the other is being told something went wrong. */
+  if v_license.expires_at is not null and v_license.expires_at < now() then
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'expired');
+    return jsonb_build_object('status', 'expired', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', 0,
+      'message', 'This trial has ended. Buy a licence to switch the premium modules back on.');
+  end if;
+
+  select * into v_row
+    from public.license_activations
+   where license_id = v_license.id and lower(site_url) = lower(p_site);
+  v_found := found;
+
+  select count(*) into v_active
+    from public.license_activations
+   where license_id = v_license.id and status = 'active';
+
+  if v_found and v_row.status = 'blocked' then
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'blocked');
+    return jsonb_build_object('status', 'blocked', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', v_active,
+      'message', 'This site has been blocked on this licence.');
+  end if;
+
+  if p_action = 'deactivate' then
+    if v_found then
+      update public.license_activations set status = 'released' where id = v_row.id;
+      if v_row.status = 'active' then v_active := v_active - 1; end if;
+    end if;
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'ok');
+    return jsonb_build_object('status', 'released', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', greatest(v_active, 0),
+      'message', 'This site has been released.');
+  end if;
+
+  if v_found and v_row.status = 'active' then
+    update public.license_activations
+       set last_check_at = now(),
+           check_count   = check_count + 1,
+           wp_version    = coalesce(p_meta ->> 'wp', wp_version),
+           theme_version = coalesce(p_meta ->> 'version', theme_version)
+     where id = v_row.id;
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'ok');
+    return jsonb_build_object('status', 'active', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', v_active,
+      'message', 'Licence active.');
+  end if;
+
+  if v_active >= v_license.sites_allowed then
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'limit_reached');
+    return jsonb_build_object('status', 'limit_reached', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', v_active,
+      'message', format('This licence covers %s site(s) and they are all in use. Release one from your dashboard, or upgrade.', v_license.sites_allowed));
+  end if;
+
+  if p_action <> 'activate' then
+    insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+    values (v_license.license_key, v_license.id, p_site, p_action, 'site_mismatch');
+    return jsonb_build_object('status', 'unknown', 'plan', v_license.plan_id,
+      'sites_allowed', v_license.sites_allowed, 'sites_used', v_active,
+      'message', 'This site is not activated on that licence.');
+  end if;
+
+  if v_found then
+    update public.license_activations
+       set status = 'active', last_check_at = now(), check_count = check_count + 1
+     where id = v_row.id;
+  else
+    insert into public.license_activations
+      (license_id, site_url, site_name, wp_version, theme_version, last_check_at)
+    values
+      (v_license.id, p_site, left(coalesce(p_meta ->> 'name', ''), 200),
+       p_meta ->> 'wp', p_meta ->> 'version', now());
+  end if;
+
+  insert into public.license_checks (license_key, license_id, site_url, action, outcome)
+  values (v_license.license_key, v_license.id, p_site, p_action, 'ok');
+
+  return jsonb_build_object('status', 'active', 'plan', v_license.plan_id,
+    'sites_allowed', v_license.sites_allowed, 'sites_used', v_active + 1,
+    'message', 'Licence activated for this site.');
+end;
+$fn$;
+
+grant execute on function public.license_check(text, text, text, jsonb) to anon, authenticated;
+
+/* 'expired' has to be a legal outcome now that the check can return it. */
+alter table public.license_checks drop constraint if exists license_checks_outcome_check;
+alter table public.license_checks add constraint license_checks_outcome_check
+  check (outcome in ('ok', 'unknown_key', 'revoked', 'blocked', 'expired',
+                     'limit_reached', 'site_mismatch', 'malformed'));
+
+/* ==========================================================================
+   THE DOWNLOAD
+   ==========================================================================
+   A private bucket rather than a public one with an unguessable path. "Nobody
+   will find the URL" stops being true the first time one customer posts it in
+   a Facebook group, and at that point the paid product is a free download with
+   extra steps. */
+insert into storage.buckets (id, name, public)
+values ('releases', 'releases', false)
+on conflict (id) do update set public = false;
+
+drop policy if exists "admins manage releases" on storage.objects;
+create policy "admins manage releases"
+  on storage.objects for all
+  to authenticated
+  using (bucket_id = 'releases' and public.is_admin())
+  with check (bucket_id = 'releases' and public.is_admin());
+
+/* Who may download: an approved account that is either licensed or still
+   inside its trial. Enforced here rather than by hiding the button, because a
+   hidden button is a UI preference and this is the actual product. */
+drop policy if exists "entitled accounts read releases" on storage.objects;
+create policy "entitled accounts read releases"
+  on storage.objects for select
+  to authenticated
+  using (
+    bucket_id = 'releases'
+    and exists (
+      select 1
+        from public.profiles p
+        left join public.licenses l on l.user_id = p.id and l.status = 'active'
+       where p.id = auth.uid()
+         and p.approval_status = 'approved'
+         and (
+           (l.id is not null and (l.expires_at is null or l.expires_at > now()))
+           or (p.trial_ends_at is not null and p.trial_ends_at > now())
+         )
+    )
+  );
+
+/* Publish a build ------------------------------------------------------------
+   The file is uploaded to the bucket by the admin screen; this records it and
+   moves the "latest" flag, which is the bit that is easy to get wrong by hand. */
+create or replace function public.publish_release(
+  p_version text,
+  p_headline text,
+  p_notes text,
+  p_object_path text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_id uuid;
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  update public.releases set is_latest = false where is_latest;
+
+  insert into public.releases (version, headline, notes, download_url, is_latest)
+  values (p_version, p_headline, p_notes, p_object_path, true)
+  on conflict (version) do update
+    set headline     = excluded.headline,
+        notes        = excluded.notes,
+        download_url = excluded.download_url,
+        is_latest    = true
+  returning id into v_id;
+
+  return v_id;
+end;
+$fn$;
+
+grant execute on function public.publish_release(text, text, text, text) to authenticated;
