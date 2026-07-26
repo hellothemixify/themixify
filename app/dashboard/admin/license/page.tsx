@@ -22,7 +22,7 @@ import { PLANS } from '@/lib/site'
 type Row = License & { owner_email: string }
 
 const FIELD =
-  'w-full rounded-xl border border-hairline bg-white px-3.5 py-2.5 text-[0.9rem] text-ink-950 outline-none transition placeholder:text-ink-300 focus:border-brand-400 focus:ring-4 focus:ring-brand-100'
+  'w-full rounded-xl border border-hairline bg-white px-3.5 py-2.5 text-[0.9rem] text-ink-950 outline-none transition placeholder:text-ink-500 focus:border-brand-400 focus:ring-4 focus:ring-brand-100'
 
 export default function AdminLicensePage() {
   const [rows, setRows] = useState<Row[]>([])

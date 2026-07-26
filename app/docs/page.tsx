@@ -106,7 +106,7 @@ export default function DocsPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {QUICKSTART.map((item) => (
             <Card key={item.step} hover>
-              <span className="text-[1.6rem] font-extrabold leading-none text-brand-200">
+              <span aria-hidden="true" className="text-[1.6rem] font-extrabold leading-none text-brand-400">
                 {item.step}
               </span>
               <h3 className="mt-2.5 text-[1.05rem] font-bold text-ink-950">

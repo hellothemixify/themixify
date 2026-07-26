@@ -7,6 +7,10 @@ import { TrendingUp, Sparkles } from 'lucide-react'
  * hand-built arrangement of the panels an operator actually looks at: traffic,
  * the health score, rank movement and indexing coverage. Everything is CSS and
  * inline SVG, so it costs no image request and stays sharp on any display.
+ *
+ * The panel captions are deliberately plain text, not headings: this is a
+ * decorative illustration, and a screen reader walking the document outline
+ * should not be told the page has a "Rank Tracker" section.
  */
 
 const BARS = [
@@ -73,9 +77,9 @@ export function HeroVisual() {
       {/* Main analytics panel */}
       <div className="relative z-10 mt-10 rounded-[26px] bg-white p-6 shadow-lift sm:mt-14">
         <div className="mb-1 flex items-baseline justify-between">
-          <h3 className="text-[1.05rem] font-extrabold text-ink-950">
+          <p className="text-[1.05rem] font-extrabold text-ink-950">
             Daily Active Users
-          </h3>
+          </p>
         </div>
         <p className="mb-5 text-[0.74rem] font-medium text-ink-500">
           Last 30 days · from Google Analytics
@@ -123,9 +127,9 @@ export function HeroVisual() {
       {/* Rank tracker panel */}
       <div className="relative z-20 -mt-5 ml-2 mr-10 rounded-[22px] bg-white p-5 shadow-lift sm:ml-6">
         <div className="mb-3.5 flex items-baseline justify-between">
-          <h3 className="text-[0.95rem] font-extrabold text-ink-950">
+          <p className="text-[0.95rem] font-extrabold text-ink-950">
             Rank Tracker
-          </h3>
+          </p>
           <span className="text-[0.68rem] font-semibold text-ink-500">
             US · Google
           </span>
@@ -133,7 +137,7 @@ export function HeroVisual() {
         <ul className="space-y-3">
           {RANKS.map((row, index) => (
             <li key={row.term} className="flex items-center gap-3">
-              <span className="w-6 shrink-0 text-[0.7rem] font-extrabold text-ink-300">
+              <span className="w-6 shrink-0 text-[0.7rem] font-extrabold text-ink-500">
                 #{index + 1}
               </span>
               <span className="min-w-0 flex-1 truncate text-[0.8rem] font-semibold text-ink-900">
@@ -147,11 +151,13 @@ export function HeroVisual() {
               </span>
               <span
                 className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[0.68rem] font-extrabold text-white ${
+                  // The 600/700 steps, not the 500s: this is 10.9px bold white
+                  // text, so each background has to clear 4.5:1 on its own.
                   row.pos <= 5
-                    ? 'bg-brand-500'
+                    ? 'bg-brand-600'
                     : row.pos <= 10
-                      ? 'bg-flare-500'
-                      : 'bg-ember-500'
+                      ? 'bg-flare-600'
+                      : 'bg-ember-700'
                 }`}
               >
                 {row.pos}

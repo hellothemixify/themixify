@@ -40,7 +40,11 @@ export default function HomePage() {
       <section className="relative overflow-hidden pb-10 pt-12 sm:pt-16">
         <div className="container-page">
           <div className="grid items-center gap-14 lg:grid-cols-[1.03fr_1fr]">
-            <div className="animate-rise">
+            {/* No entrance animation on this column on purpose: the headline is
+                the Largest Contentful Paint element, and a fade-in from opacity
+                0 delays the moment it counts as painted by the whole duration
+                of the animation. */}
+            <div>
               <Pill tone="warm" className="mb-6">
                 <Sparkles size={12} strokeWidth={3} />
                 World&apos;s first Zero Plugin Free &amp; agentic-optimized theme
@@ -135,7 +139,7 @@ export default function HomePage() {
         <div className="grid gap-4 md:grid-cols-2">
           {PAIN_POINTS.map((point, index) => (
             <Card key={point.title} hover className="flex gap-4">
-              <span className="mt-0.5 select-none text-[1.6rem] font-extrabold leading-none text-brand-200">
+              <span aria-hidden="true" className="mt-0.5 select-none text-[1.6rem] font-extrabold leading-none text-brand-400">
                 {String(index + 1).padStart(2, '0')}
               </span>
               <div>

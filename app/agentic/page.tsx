@@ -83,7 +83,7 @@ export default function AgenticPage() {
             },
           ].map((item) => (
             <Card key={item.n} hover>
-              <span className="text-[2rem] font-extrabold leading-none text-brand-200">
+              <span aria-hidden="true" className="text-[2rem] font-extrabold leading-none text-brand-400">
                 {item.n}
               </span>
               <h2 className="mt-3 text-[1.15rem] font-bold text-ink-950">
@@ -161,7 +161,7 @@ export default function AgenticPage() {
                               <CheckIcon size={13} strokeWidth={3.2} />
                             </span>
                           ) : (
-                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink-100 text-ink-300">
+                            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink-100 text-ink-500">
                               <Minus size={13} strokeWidth={3} />
                             </span>
                           )}
@@ -194,7 +194,7 @@ export default function AgenticPage() {
         <div className="grid gap-4 md:grid-cols-2">
           {AGENTIC_ENDPOINTS.map((endpoint, index) => (
             <Card key={endpoint.path} hover className="flex gap-4">
-              <span className="mt-0.5 select-none text-[1.3rem] font-extrabold leading-none text-brand-200">
+              <span aria-hidden="true" className="mt-0.5 select-none text-[1.3rem] font-extrabold leading-none text-brand-400">
                 {String(index + 1).padStart(2, '0')}
               </span>
               <div className="min-w-0">

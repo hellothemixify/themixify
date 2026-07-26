@@ -41,3 +41,6 @@ yarn-error.log*
 # cloudflare / opennext build output
 .open-next/
 .wrangler/
+
+# Reference material, not part of the site
+*.pdf

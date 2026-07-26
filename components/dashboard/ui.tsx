@@ -144,7 +144,7 @@ export function Sparkline({
   if (points.length < 2) {
     return (
       <div
-        className="flex items-center justify-center text-[0.82rem] text-ink-300"
+        className="flex items-center justify-center text-[0.82rem] text-ink-500"
         style={{ height }}
       >
         Not enough data yet

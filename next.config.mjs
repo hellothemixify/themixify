@@ -2,9 +2,31 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+
   images: {
     formats: ['image/avif', 'image/webp'],
   },
+
+  experimental: {
+    // Inline the stylesheet into the document instead of linking it. The CSS is
+    // ~10KB and it was the single render-blocking request on the page: the
+    // largest text could not paint until it came back over the network. Inlining
+    // it removes that round trip entirely.
+    inlineCss: true,
+    // Only pull in the icons that are actually imported rather than the whole
+    // barrel file, which is most of the unused JavaScript in the bundle.
+    optimizePackageImports: ['lucide-react'],
+  },
+
+  compiler: {
+    // Strip console output from the production bundle. console.error stays —
+    // losing real errors to save a few bytes is a bad trade.
+    removeConsole: process.env.NODE_ENV === 'production' ? { exclude: ['error'] } : false,
+  },
+
+  // Source maps would roughly double what the edge has to store and serve for
+  // no benefit to a visitor.
+  productionBrowserSourceMaps: false,
   // /llms.txt is served by a route handler. It is mapped through a rewrite
   // rather than a literal `app/llms.txt/` directory, because a route segment
   // containing a dot is fragile across platforms and file watchers.
@@ -53,6 +75,20 @@ const nextConfig = {
           {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=()',
+          },
+        ],
+      },
+      // /_next/static is deliberately not listed: Next already serves it with
+      // `max-age=31536000, immutable`, and overriding it here breaks the dev
+      // server's asset invalidation for no gain.
+      {
+        // Brand assets are not content-hashed, so they get a long browser TTL
+        // with a stale-while-revalidate window rather than an immutable one.
+        source: '/:file(og.png|logo.webp|icon-192.webp|icon-512.webp)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=86400, stale-while-revalidate=604800',
           },
         ],
       },
