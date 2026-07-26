@@ -34,7 +34,11 @@ function AppBar({ profile }: { profile: Profile }) {
 
   return (
     <header className="sticky top-0 z-40 border-b border-hairline bg-white/85 backdrop-blur-xl">
-      <div className="container-page flex h-[62px] items-center justify-between gap-4">
+      {/* Not container-page. The marketing pages want a measured column with
+          air on both sides; an application wants the window. Capping this at
+          1200px on a 1900px screen is what pushed the data tables into a
+          horizontal scrollbar while 350px sat empty on either side. */}
+      <div className="flex h-[62px] items-center justify-between gap-4 px-5">
         <Link href="/dashboard" aria-label="Dashboard" className="shrink-0">
           <LogoLockup size={30} id="app" />
         </Link>
@@ -171,10 +175,15 @@ export default function DashboardLayout({
   return (
     <>
       <AppBar profile={profile} />
-      <main id="main" className="container-page py-8">
-      <div className="grid gap-8 lg:grid-cols-[236px_1fr]">
+      {/* Full width, fixed-width sidebar, content takes the rest. The grid
+          columns are `236px 1fr` rather than a centred max-width, so a wide
+          screen gets more table instead of more margin. `min-w-0` on the
+          content column is what actually lets it shrink — without it a wide
+          table pushes the whole grid out and the page scrolls sideways. */}
+      <main id="main" className="px-5 py-7">
+      <div className="grid gap-7 lg:grid-cols-[236px_minmax(0,1fr)]">
         {/* Sidebar */}
-        <aside className="lg:sticky lg:top-24 lg:self-start">
+        <aside className="lg:sticky lg:top-[86px] lg:self-start">
           <div className="surface-card p-4">
             <div className="mb-4 flex items-center gap-3 border-b border-hairline px-1 pb-4">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(130deg,#8b5cf6,#ec4899)] text-[0.95rem] font-extrabold text-white">

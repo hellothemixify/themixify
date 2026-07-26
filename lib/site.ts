@@ -32,7 +32,7 @@ export const SITE = {
 export const SUPPORT = {
   /** International format, no + or spaces — wa.me wants it bare. */
   whatsapp: '8801767682381',
-  telegram: 'https://t.me/themixify',
+  telegram: 'https://t.me/writerify',
   display: '+880 1767 682381',
 } as const
 
