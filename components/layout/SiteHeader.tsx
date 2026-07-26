@@ -5,9 +5,26 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Menu, X } from 'lucide-react'
 import { LogoLockup } from '@/components/ui/Logo'
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/primitives'
-import { AuthModal } from '@/components/auth/AuthModal'
 import { NAV } from '@/lib/site'
+
+/**
+ * Loaded on demand, and mounted only once someone asks for it.
+ *
+ * The auth form reaches the Supabase client, which is about 68KB of JavaScript.
+ * Imported normally it rides along in the header — and the header is on every
+ * page — so every visitor reading a marketing page downloaded and parsed an
+ * entire database SDK to look at a "Sign in" button they were not going to
+ * press. It cost 25 points of mobile performance when it was measured.
+ *
+ * ssr: false because a dialog that has not been opened has nothing to render on
+ * the server, and the visitor pays a fetch only at the moment they click.
+ */
+const AuthModal = dynamic(
+  () => import('@/components/auth/AuthModal').then((m) => m.AuthModal),
+  { ssr: false },
+)
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false)
@@ -129,7 +146,7 @@ export function SiteHeader() {
         </div>
       )}
 
-      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
+      {authOpen && <AuthModal open onClose={() => setAuthOpen(false)} />}
     </header>
   )
 }
