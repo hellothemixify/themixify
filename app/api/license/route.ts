@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { sign, type LicensePayload } from '@/lib/license/sign'
 
-export const runtime = 'edge'
+// Deliberately not `runtime = 'edge'`. OpenNext already runs the whole app in
+// workerd with nodejs_compat, so the edge runtime buys nothing here and its
+// route handling is not supported by the adapter — it returned a bare 500 on
+// every request with no log line to explain it.
 export const dynamic = 'force-dynamic'
 
 /**
