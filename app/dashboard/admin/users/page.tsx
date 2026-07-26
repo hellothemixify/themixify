@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, RefreshCw, Search, ShieldCheck } from 'lucide-react'
-import { Panel, PanelHead, StatusChip, shortDate } from '@/components/dashboard/ui'
+import { Panel, PanelHead, shortDate } from '@/components/dashboard/ui'
 import {
   adminApproveAccount,
   adminListAccounts,
@@ -45,6 +45,15 @@ type Filter =
   | 'paid'
   | 'partial'
   | 'unpaid'
+
+/** What each access state should actually say to a human. */
+const ACCESS_LABEL: Record<AdminAccount['access_state'], { text: string; tone: string }> = {
+  owner: { text: 'Owner', tone: 'bg-brand-100 text-brand-700' },
+  licensed: { text: 'Licensed', tone: 'bg-[#eefaf1] text-[#15803d]' },
+  trial: { text: 'On trial', tone: 'bg-brand-50 text-brand-700' },
+  trial_expired: { text: 'Trial ended', tone: 'bg-[#fff5e6] text-[#b45309]' },
+  none: { text: 'No licence', tone: 'bg-ink-100 text-ink-500' },
+}
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'all', label: 'Everyone' },
@@ -284,17 +293,16 @@ export default function AdminUsersPage() {
                     </td>
 
                     <td className="px-4 py-3">
-                      <StatusChip
-                        status={
-                          row.access_state === 'licensed'
-                            ? 'active'
-                            : row.access_state === 'trial'
-                              ? 'new'
-                              : row.access_state === 'trial_expired'
-                                ? 'expired'
-                                : 'pending'
-                        }
-                      />
+                      {/* Spelled out rather than mapped onto the generic status
+                          chip. Reusing that vocabulary is how an owner ended up
+                          labelled "pending" — they hold no licence and are on no
+                          trial, and neither fact says anything about whether
+                          they can use the product. */}
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[0.7rem] font-bold uppercase tracking-[0.06em] ${ACCESS_LABEL[row.access_state].tone}`}
+                      >
+                        {ACCESS_LABEL[row.access_state].text}
+                      </span>
                       {row.access_state === 'trial' && row.trial_ends_at && (
                         <span className="mt-1 block text-[0.72rem] text-ink-500">
                           until {shortDate(row.trial_ends_at)}

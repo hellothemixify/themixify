@@ -531,7 +531,9 @@ export type AdminAccount = {
   sites_used: number
   /** owner never counts as revenue; partial is paid > 0 but short of the price. */
   payment_state: 'owner' | 'paid' | 'partial' | 'unpaid'
-  access_state: 'licensed' | 'trial' | 'trial_expired' | 'none'
+  /** `owner` outranks the rest: an owner holds no licence and is on no trial,
+   *  and neither fact says anything about whether they can use the product. */
+  access_state: 'owner' | 'licensed' | 'trial' | 'trial_expired' | 'none'
 }
 
 export type AdminRevenue = {

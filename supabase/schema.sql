@@ -1489,3 +1489,61 @@ end;
 $fn$;
 
 grant execute on function public.publish_release(text, text, text, text) to authenticated;
+/* Owners have access by definition ------------------------------------------
+   The earlier version computed access purely from licence and trial, so an
+   owner — who holds neither, and needs neither — fell through to 'none' and the
+   screen drew it as "pending". Reading that an administrator is awaiting
+   approval on the very screen they would use to approve people is the kind of
+   wrong that makes someone distrust every other number on the page.
+
+   Column list is unchanged, so admin_list_accounts() and admin_revenue() keep
+   working against it untouched. */
+create or replace view public.admin_accounts as
+select
+  p.id,
+  p.email,
+  p.full_name,
+  p.phone,
+  p.role,
+  p.approval_status,
+  p.approved_at,
+  p.trial_ends_at,
+  p.created_at,
+  p.last_active_at,
+  l.id                                as license_id,
+  l.license_key,
+  l.plan_id,
+  l.status                            as license_status,
+  coalesce(l.price_cents, 0)          as price_cents,
+  coalesce(l.paid_cents, 0)           as paid_cents,
+  coalesce(l.sites_allowed, 0)        as sites_allowed,
+  (
+    select count(*) from public.license_activations a
+     where a.license_id = l.id and a.status = 'active'
+  )                                   as sites_used,
+  case
+    when p.role = 'admin' or coalesce(l.price_cents, 0) = 0 then 'owner'
+    when coalesce(l.paid_cents, 0) >= coalesce(l.price_cents, 0) then 'paid'
+    when coalesce(l.paid_cents, 0) > 0                          then 'partial'
+    else 'unpaid'
+  end                                 as payment_state,
+  case
+    /* First, because it outranks everything else: an owner does not hold a
+       licence and is not on a trial, and neither fact says anything about
+       whether they can use the product. */
+    when p.role = 'admin' then 'owner'
+    when l.id is not null and l.status = 'active'
+         and (l.expires_at is null or l.expires_at > now()) then 'licensed'
+    when p.trial_ends_at is not null and p.trial_ends_at > now() then 'trial'
+    when p.trial_ends_at is not null then 'trial_expired'
+    else 'none'
+  end                                 as access_state
+from public.profiles p
+left join lateral (
+  select * from public.licenses
+   where user_id = p.id
+   order by created_at desc
+   limit 1
+) l on true;
+
+revoke all on public.admin_accounts from anon, authenticated;
