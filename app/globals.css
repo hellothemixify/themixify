@@ -167,6 +167,25 @@ body::before {
   color: transparent;
 }
 
+/* Skip layout and paint for a band while it is off screen.
+ *
+ * The marketing pages are long — the homepage alone is a ~350KB document — and
+ * on a throttled phone the browser was spending over a second laying out
+ * content nobody had scrolled to yet before it could paint the part they could
+ * actually see. This tells it not to bother until the band is near the
+ * viewport.
+ *
+ * `auto` on the intrinsic size matters: the browser remembers each band's real
+ * height once it has rendered it, so the scroll position stays honest after the
+ * first pass and the placeholder figure only ever applies before that. The
+ * content stays in the DOM and stays in the accessibility tree, so this is
+ * invisible to search engines, to find-in-page and to screen readers — unlike
+ * every other way of not rendering something. */
+@utility defer-paint {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 700px;
+}
+
 @utility surface-card {
   background: var(--color-surface);
   border: 1px solid var(--color-hairline);

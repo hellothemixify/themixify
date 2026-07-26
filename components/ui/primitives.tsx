@@ -103,7 +103,11 @@ export function Section({
   id?: string
 }) {
   return (
-    <section id={id} className={`py-16 sm:py-24 ${className}`}>
+    // `defer-paint` is applied to every Section rather than to a chosen few.
+    // Heroes are written as plain <section> elements, so a Section is below the
+    // fold by construction, and the browser renders any band that reaches the
+    // viewport regardless.
+    <section id={id} className={`defer-paint py-16 sm:py-24 ${className}`}>
       <div className="container-page">{children}</div>
     </section>
   )
