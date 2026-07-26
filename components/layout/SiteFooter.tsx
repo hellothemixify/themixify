@@ -54,14 +54,23 @@ export function SiteFooter() {
               <h3 className="mb-3.5 text-[0.72rem] font-extrabold uppercase tracking-[0.16em] text-ink-950">
                 {column.title}
               </h3>
-              <ul className="space-y-2.5">
+              <ul className="space-y-0.5">
                 {column.links.map((link) => {
                   const external = link.href.startsWith('http')
                   return (
                     <li key={link.href}>
+                      {/* inline-block with vertical padding rather than a bare
+                          inline link: at this size the tappable box was 18px
+                          tall, under the 24px a thumb needs. The row spacing
+                          comes down to compensate, so nothing moves. */}
                       <Link
                         href={link.href}
-                        className="text-[0.92rem] text-ink-700 transition hover:text-brand-600"
+                        // The footer carries every route on the site. Prefetching
+                        // all of them costs real bandwidth during the initial
+                        // load for links almost nobody clicks straight away; the
+                        // header nav and the calls to action still prefetch.
+                        prefetch={false}
+                        className="inline-block py-1.5 text-[0.92rem] text-ink-700 transition hover:text-brand-600"
                         {...(external
                           ? { target: '_blank', rel: 'noopener noreferrer' }
                           : {})}

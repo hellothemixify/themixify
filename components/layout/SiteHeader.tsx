@@ -44,7 +44,15 @@ export function SiteHeader() {
       }`}
     >
       <div className="container-page flex h-[70px] items-center justify-between gap-6">
-        <Link href="/" aria-label="Themixify home" className="shrink-0">
+        {/* Not prefetched: on the homepage this points at the page the visitor
+            is already on, and Next would still pull ~13KB of route payload for
+            it — bandwidth spent during the load, competing with the content. */}
+        <Link
+          href="/"
+          prefetch={false}
+          aria-label="Themixify home"
+          className="shrink-0"
+        >
           <LogoLockup size={34} id="hdr" />
         </Link>
 
