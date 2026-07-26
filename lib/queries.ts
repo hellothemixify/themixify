@@ -1,0 +1,513 @@
+'use client'
+
+/**
+ * Every database call the application makes, in one file.
+ *
+ * Components never talk to Supabase directly. They import a named function
+ * from here, which means the entire data surface of the product is auditable in
+ * a single scroll — you can see exactly what the app reads, what it writes, and
+ * what it never touches. It also means a schema change has exactly one place to
+ * land.
+ *
+ * The matching database objects live in supabase/schema.sql, which is likewise
+ * a single runnable file. Run that once and everything below works.
+ *
+ * Every function returns a discriminated result rather than throwing, because
+ * these are called from event handlers and a rejected promise in a form submit
+ * is a blank screen with no explanation.
+ */
+
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
+
+/* ==========================================================================
+   TYPES
+   ========================================================================== */
+
+export type Result<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; data?: undefined }
+
+export type Profile = {
+  id: string
+  email: string
+  full_name: string | null
+  role: 'user' | 'admin'
+  country: string | null
+  created_at: string
+  last_active_at: string | null
+}
+
+export type License = {
+  id: string
+  license_key: string
+  user_id: string
+  plan_id: string
+  plan_name: string
+  sites_allowed: number
+  sites_used: number
+  status: 'active' | 'revoked' | 'expired'
+  created_at: string
+  notes: string | null
+}
+
+export type Activation = {
+  id: string
+  license_id: string
+  site_url: string
+  site_name: string | null
+  status: 'active' | 'released'
+  activated_at: string
+  last_check_at: string | null
+}
+
+export type Order = {
+  id: string
+  user_id: string
+  plan_id: string
+  amount_cents: number
+  currency: string
+  status: 'pending' | 'paid' | 'refunded' | 'failed'
+  provider: string | null
+  provider_ref: string | null
+  created_at: string
+}
+
+export type Release = {
+  id: string
+  version: string
+  released_at: string
+  headline: string
+  notes: string | null
+  download_url: string | null
+  is_latest: boolean
+}
+
+export type AdminOverview = {
+  total_users: number
+  active_users: number
+  total_licenses: number
+  active_licenses: number
+  total_activations: number
+  revenue_cents: number
+  orders_paid: number
+  new_users_30d: number
+  revenue_30d_cents: number
+  plan_mix: { plan_id: string; plan_name: string; count: number }[]
+  signup_series: { day: string; count: number }[]
+}
+
+const NOT_CONFIGURED =
+  'The database is not connected yet. Add your Supabase URL and anon key to .env.local.'
+
+/** Normalise anything thrown or returned by Supabase into a readable string. */
+function toMessage(error: unknown, fallback: string): string {
+  if (!error) return fallback
+  if (typeof error === 'string') return error
+  if (typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === 'string' && message.trim()) return message
+  }
+  return fallback
+}
+
+function guard<T>(): Result<T> | null {
+  if (!isSupabaseConfigured()) {
+    return { ok: false, error: NOT_CONFIGURED }
+  }
+  return null
+}
+
+/* ==========================================================================
+   AUTH
+   ========================================================================== */
+
+export async function signUp(input: {
+  email: string
+  password: string
+  fullName: string
+}): Promise<Result<{ needsConfirmation: boolean }>> {
+  const blocked = guard<{ needsConfirmation: boolean }>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase.auth.signUp({
+    email: input.email,
+    password: input.password,
+    // The profile row is created by a database trigger, not by the client, so
+    // a user can never exist in auth without a matching profile.
+    options: { data: { full_name: input.fullName } },
+  })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not create the account.') }
+  return { ok: true, data: { needsConfirmation: !data.session } }
+}
+
+export async function signIn(input: {
+  email: string
+  password: string
+}): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.auth.signInWithPassword(input)
+  if (error) return { ok: false, error: toMessage(error, 'Those details did not match.') }
+  return { ok: true, data: null }
+}
+
+export async function signOut(): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.auth.signOut()
+  if (error) return { ok: false, error: toMessage(error, 'Could not sign out.') }
+  return { ok: true, data: null }
+}
+
+export async function requestPasswordReset(email: string): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo:
+      typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined,
+  })
+  if (error) return { ok: false, error: toMessage(error, 'Could not send the reset email.') }
+  return { ok: true, data: null }
+}
+
+export async function getCurrentProfile(): Promise<Result<Profile | null>> {
+  const blocked = guard<Profile | null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) return { ok: true, data: null }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', auth.user.id)
+    .maybeSingle()
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not load your profile.') }
+  return { ok: true, data: (data as Profile) ?? null }
+}
+
+export async function updateProfile(input: {
+  full_name?: string
+  country?: string
+}): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) return { ok: false, error: 'You are not signed in.' }
+
+  const { error } = await supabase.from('profiles').update(input).eq('id', auth.user.id)
+  if (error) return { ok: false, error: toMessage(error, 'Could not save your details.') }
+  return { ok: true, data: null }
+}
+
+/* ==========================================================================
+   LICENCES — customer side
+   ========================================================================== */
+
+export async function getMyLicenses(): Promise<Result<License[]>> {
+  const blocked = guard<License[]>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('licenses_with_usage')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not load your licences.') }
+  return { ok: true, data: (data ?? []) as License[] }
+}
+
+export async function getActivations(licenseId: string): Promise<Result<Activation[]>> {
+  const blocked = guard<Activation[]>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('license_activations')
+    .select('*')
+    .eq('license_id', licenseId)
+    .eq('status', 'active')
+    .order('activated_at', { ascending: false })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not load activations.') }
+  return { ok: true, data: (data ?? []) as Activation[] }
+}
+
+/**
+ * Release a site slot so the licence can be moved to a different domain.
+ * Deliberately a soft release — the row is kept so an audit trail survives.
+ */
+export async function releaseActivation(activationId: string): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('license_activations')
+    .update({ status: 'released' })
+    .eq('id', activationId)
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not release that site.') }
+  return { ok: true, data: null }
+}
+
+export async function getMyOrders(): Promise<Result<Order[]>> {
+  const blocked = guard<Order[]>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not load your orders.') }
+  return { ok: true, data: (data ?? []) as Order[] }
+}
+
+/* ==========================================================================
+   RELEASES / DOWNLOADS
+   ========================================================================== */
+
+export async function getReleases(limit = 20): Promise<Result<Release[]>> {
+  const blocked = guard<Release[]>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('releases')
+    .select('*')
+    .order('released_at', { ascending: false })
+    .limit(limit)
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not load releases.') }
+  return { ok: true, data: (data ?? []) as Release[] }
+}
+
+/* ==========================================================================
+   ADMIN — overview
+   ========================================================================== */
+
+/**
+ * One round trip for the whole admin overview.
+ *
+ * The aggregation happens in Postgres rather than by pulling every row into the
+ * browser and counting there, so the screen stays fast at a hundred thousand
+ * users and never leaks rows the caller is not entitled to see.
+ */
+export async function getAdminOverview(): Promise<Result<AdminOverview>> {
+  const blocked = guard<AdminOverview>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase.rpc('admin_overview')
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not load the overview.') }
+  return { ok: true, data: data as AdminOverview }
+}
+
+/* ==========================================================================
+   ADMIN — users
+   ========================================================================== */
+
+export type AdminUserRow = Profile & {
+  license_count: number
+  activation_count: number
+  total_paid_cents: number
+}
+
+export async function adminListUsers(input?: {
+  search?: string
+  limit?: number
+}): Promise<Result<AdminUserRow[]>> {
+  const blocked = guard<AdminUserRow[]>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  let query = supabase
+    .from('admin_user_rows')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(input?.limit ?? 200)
+
+  const search = input?.search?.trim()
+  if (search) {
+    query = query.or(`email.ilike.%${search}%,full_name.ilike.%${search}%`)
+  }
+
+  const { data, error } = await query
+  if (error) return { ok: false, error: toMessage(error, 'Could not load users.') }
+  return { ok: true, data: (data ?? []) as AdminUserRow[] }
+}
+
+export async function adminSetUserRole(
+  userId: string,
+  role: 'user' | 'admin',
+): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.from('profiles').update({ role }).eq('id', userId)
+  if (error) return { ok: false, error: toMessage(error, 'Could not change that role.') }
+  return { ok: true, data: null }
+}
+
+/* ==========================================================================
+   ADMIN — licences
+   ========================================================================== */
+
+export async function adminListLicenses(input?: {
+  search?: string
+  status?: string
+  limit?: number
+}): Promise<Result<(License & { owner_email: string })[]>> {
+  const blocked = guard<(License & { owner_email: string })[]>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  let query = supabase
+    .from('admin_license_rows')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(input?.limit ?? 200)
+
+  if (input?.status && input.status !== 'all') {
+    query = query.eq('status', input.status)
+  }
+
+  const search = input?.search?.trim()
+  if (search) {
+    query = query.or(`license_key.ilike.%${search}%,owner_email.ilike.%${search}%`)
+  }
+
+  const { data, error } = await query
+  if (error) return { ok: false, error: toMessage(error, 'Could not load licences.') }
+  return { ok: true, data: (data ?? []) as (License & { owner_email: string })[] }
+}
+
+/**
+ * Issue a licence by hand — the path used for manual sales, replacements,
+ * review copies and support goodwill. The key itself is generated in the
+ * database so it can never collide with an existing one.
+ */
+export async function adminIssueLicense(input: {
+  email: string
+  planId: string
+  notes?: string
+}): Promise<Result<{ license_key: string }>> {
+  const blocked = guard<{ license_key: string }>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase.rpc('admin_issue_license', {
+    p_email: input.email,
+    p_plan_id: input.planId,
+    p_notes: input.notes ?? null,
+  })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not issue that licence.') }
+  return { ok: true, data: data as { license_key: string } }
+}
+
+export async function adminSetLicenseStatus(
+  licenseId: string,
+  status: 'active' | 'revoked' | 'expired',
+): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.from('licenses').update({ status }).eq('id', licenseId)
+  if (error) return { ok: false, error: toMessage(error, 'Could not update that licence.') }
+  return { ok: true, data: null }
+}
+
+export async function adminAdjustSiteLimit(
+  licenseId: string,
+  sitesAllowed: number,
+): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('licenses')
+    .update({ sites_allowed: sitesAllowed })
+    .eq('id', licenseId)
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not change the limit.') }
+  return { ok: true, data: null }
+}
+
+/* ==========================================================================
+   ADMIN — messages
+   ========================================================================== */
+
+export type ContactMessage = {
+  id: string
+  name: string
+  email: string
+  topic: string
+  message: string
+  status: 'new' | 'read' | 'closed'
+  created_at: string
+}
+
+export async function adminListMessages(limit = 100): Promise<Result<ContactMessage[]>> {
+  const blocked = guard<ContactMessage[]>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('contact_messages')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not load messages.') }
+  return { ok: true, data: (data ?? []) as ContactMessage[] }
+}
+
+/* ==========================================================================
+   PUBLIC WRITES
+   ========================================================================== */
+
+/**
+ * The contact form. The only write an anonymous visitor is allowed to make,
+ * and the policy in schema.sql permits insert and nothing else — no anonymous
+ * caller can read back what anyone has sent.
+ */
+export async function submitContactMessage(input: {
+  name: string
+  email: string
+  topic: string
+  message: string
+}): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.from('contact_messages').insert({
+    name: input.name.trim(),
+    email: input.email.trim().toLowerCase(),
+    topic: input.topic,
+    message: input.message.trim(),
+  })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not send the message.') }
+  return { ok: true, data: null }
+}
