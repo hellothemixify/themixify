@@ -1,0 +1,264 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   Design tokens
+   The palette is taken from the Themixify mark itself — a single hue sweep
+   from violet through magenta into amber. Everything on the site is a slice of
+   that one gradient, which is why the brand reads as one object rather than a
+   collection of coloured boxes.
+   ========================================================================== */
+@theme {
+  /* Brand ramp */
+  --color-brand-50: #f8f4ff;
+  --color-brand-100: #f0e7ff;
+  --color-brand-200: #e3d3ff;
+  --color-brand-300: #cbb0fc;
+  --color-brand-400: #ab82f7;
+  --color-brand-500: #8b5cf6;
+  --color-brand-600: #7439e0;
+  --color-brand-700: #5f2ab8;
+  --color-brand-800: #4d2494;
+  --color-brand-900: #3f2077;
+
+  /* Magenta — the mid-point of the mark */
+  --color-flare-300: #f9a8d4;
+  --color-flare-400: #f472b6;
+  --color-flare-500: #ec4899;
+  --color-flare-600: #db2777;
+
+  /* Amber — the warm end of the mark */
+  --color-ember-300: #fcd34d;
+  --color-ember-400: #fbbf24;
+  --color-ember-500: #f59e0b;
+  --color-ember-600: #f97316;
+
+  /* Ink */
+  --color-ink-950: #120a20;
+  --color-ink-900: #1d1430;
+  --color-ink-700: #453a5c;
+  --color-ink-500: #6b6285;
+  --color-ink-300: #a29bb5;
+  --color-ink-100: #e7e3ef;
+
+  /* Surfaces */
+  --color-canvas: #fbf8ff;
+  --color-surface: #ffffff;
+  --color-hairline: #ece6f7;
+
+  /* Semantic */
+  --color-good: #16a34a;
+  --color-warn: #d97706;
+  --color-bad: #dc2626;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas,
+    monospace;
+
+  --radius-card: 20px;
+  --radius-pill: 999px;
+
+  --shadow-soft: 0 1px 2px rgba(18, 10, 32, 0.04),
+    0 8px 24px -12px rgba(78, 34, 148, 0.18);
+  --shadow-lift: 0 2px 4px rgba(18, 10, 32, 0.04),
+    0 24px 56px -20px rgba(78, 34, 148, 0.28);
+  --shadow-glow: 0 18px 40px -14px rgba(139, 92, 246, 0.55);
+
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-drift: drift 22s linear infinite;
+  --animate-rise: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes drift {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+* {
+  border-color: var(--color-hairline);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink-950);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+/* The page sits on a very soft three-point bloom rather than a flat fill, so
+   large empty areas still feel like part of the brand. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      52rem 32rem at 12% -6%,
+      rgba(171, 130, 247, 0.28),
+      transparent 62%
+    ),
+    radial-gradient(
+      44rem 30rem at 96% 4%,
+      rgba(251, 191, 36, 0.2),
+      transparent 60%
+    ),
+    radial-gradient(
+      60rem 40rem at 60% 100%,
+      rgba(236, 72, 153, 0.14),
+      transparent 65%
+    );
+}
+
+::selection {
+  background: rgba(139, 92, 246, 0.22);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+@utility container-page {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4vw, 2rem);
+}
+
+@utility text-gradient {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-brand-500) 0%,
+    var(--color-flare-500) 46%,
+    var(--color-ember-600) 82%,
+    var(--color-ember-400) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+@utility surface-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+
+@utility hairline {
+  border-color: var(--color-hairline);
+}
+
+/* A thin gradient rule used to separate major bands. */
+@utility rule-gradient {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-brand-300),
+    var(--color-flare-400),
+    var(--color-ember-400),
+    transparent
+  );
+}
+
+/* Prose defaults for docs and long-form pages. */
+.prose-tm {
+  color: var(--color-ink-700);
+  line-height: 1.75;
+}
+.prose-tm h2 {
+  color: var(--color-ink-950);
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 2.25rem 0 0.75rem;
+}
+.prose-tm h3 {
+  color: var(--color-ink-950);
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin: 1.75rem 0 0.5rem;
+}
+.prose-tm p {
+  margin: 0 0 1rem;
+}
+.prose-tm ul {
+  margin: 0 0 1rem;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+.prose-tm li {
+  margin-bottom: 0.4rem;
+}
+.prose-tm code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--color-brand-50);
+  color: var(--color-brand-700);
+  padding: 0.1em 0.4em;
+  border-radius: 6px;
+}
+.prose-tm a {
+  color: var(--color-brand-600);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Tables inside content scroll themselves; the page never scrolls sideways. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
