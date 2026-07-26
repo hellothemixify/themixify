@@ -155,6 +155,24 @@ export async function signIn(input: {
   return { ok: true, data: null }
 }
 
+/**
+ * Send the confirmation email again.
+ *
+ * The first one gets filtered, deleted by accident, or simply never arrives, and
+ * without this the only way out is to try signing up again — which fails,
+ * because the account already exists. That dead end is a support ticket every
+ * single time.
+ */
+export async function resendConfirmation(email: string): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.auth.resend({ type: 'signup', email })
+  if (error) return { ok: false, error: toMessage(error, 'Could not resend the email.') }
+  return { ok: true, data: null }
+}
+
 export async function signOut(): Promise<Result<null>> {
   const blocked = guard<null>()
   if (blocked) return blocked

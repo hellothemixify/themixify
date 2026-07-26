@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowRight, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/primitives'
+import { CheckInbox } from '@/components/auth/CheckInbox'
 import { requestPasswordReset, signIn, signUp } from '@/lib/queries'
 import { isSupabaseConfigured } from '@/lib/supabase/client'
 
@@ -56,8 +57,12 @@ export function AuthForm({
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
   const [reveal, setReveal] = useState(false)
+  // Set once an email has gone out, which replaces the form entirely rather
+  // than leaving it on screen behind a notice.
+  const [sent, setSent] = useState<{ kind: 'signup' | 'reset'; email: string } | null>(
+    null,
+  )
   const firstFieldRef = useRef<HTMLInputElement>(null)
 
   // Ids come from useId rather than being written out, because this form can be
@@ -78,8 +83,8 @@ export function AuthForm({
   // what they are looking at now.
   useEffect(() => {
     setError('')
-    setNotice('')
     setReveal(false)
+    setSent(null)
   }, [mode])
 
   useEffect(() => {
@@ -90,7 +95,6 @@ export function AuthForm({
     event.preventDefault()
     setBusy(true)
     setError('')
-    setNotice('')
 
     const form = new FormData(event.currentTarget)
     const email = String(form.get('email') ?? '')
@@ -100,9 +104,7 @@ export function AuthForm({
       const result = await requestPasswordReset(email)
       setBusy(false)
       if (result.ok) {
-        setNotice(
-          'If that address has an account, a reset link is on its way. It is good for one hour.',
-        )
+        setSent({ kind: 'reset', email })
       } else {
         setError(result.error)
       }
@@ -121,8 +123,7 @@ export function AuthForm({
         return
       }
       if (result.data.needsConfirmation) {
-        setNotice('Account created. Confirm your email address, then sign in.')
-        onModeChange('signin')
+        setSent({ kind: 'signup', email })
         return
       }
       onSuccess ? onSuccess() : router.push('/dashboard')
@@ -136,6 +137,19 @@ export function AuthForm({
       return
     }
     onSuccess ? onSuccess() : router.push('/dashboard')
+  }
+
+  if (sent) {
+    return (
+      <CheckInbox
+        email={sent.email}
+        kind={sent.kind}
+        onBack={() => {
+          setSent(null)
+          onModeChange('signin')
+        }}
+      />
+    )
   }
 
   return (
@@ -248,14 +262,6 @@ export function AuthForm({
             className="rounded-xl bg-[#fdecec] px-4 py-3 text-[0.86rem] font-medium text-[#b3261e]"
           >
             {error}
-          </p>
-        )}
-        {notice && (
-          <p
-            role="status"
-            className="rounded-xl bg-[#eefaf1] px-4 py-3 text-[0.86rem] font-medium text-[#15803d]"
-          >
-            {notice}
           </p>
         )}
 
