@@ -131,6 +131,7 @@ export async function signUp(input: {
   email: string
   password: string
   fullName: string
+  phone?: string
 }): Promise<Result<{ needsConfirmation: boolean }>> {
   const blocked = guard<{ needsConfirmation: boolean }>()
   if (blocked) return blocked
@@ -140,8 +141,12 @@ export async function signUp(input: {
     email: input.email,
     password: input.password,
     // The profile row is created by a database trigger, not by the client, so
-    // a user can never exist in auth without a matching profile.
-    options: { data: { full_name: input.fullName } },
+    // a user can never exist in auth without a matching profile. The phone
+    // travels in user metadata and the trigger copies it across — activation
+    // happens over WhatsApp, so an account without a number is unreachable.
+    options: {
+      data: { full_name: input.fullName, phone: input.phone?.trim() || null },
+    },
   })
 
   if (error) return { ok: false, error: toMessage(error, 'Could not create the account.') }
@@ -215,6 +220,38 @@ export async function requestPasswordReset(email: string): Promise<Result<null>>
  * link, and safe to call from a signed-in account screen later — Supabase
  * applies it to the caller's own user and nobody else's.
  */
+/**
+ * A short-lived download link for a published build.
+ *
+ * The bucket is private and the row-level policy decides who may read it —
+ * approved, and either licensed or inside the trial. That check happens in the
+ * database, so a link cannot be produced for somebody who is not entitled to
+ * one, whatever the browser thinks. Sixty seconds is plenty for a click and
+ * short enough that a URL pasted into a group chat is dead before anyone
+ * follows it.
+ */
+export async function getDownloadUrl(objectPath: string): Promise<Result<string>> {
+  const blocked = guard<string>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase.storage
+    .from('releases')
+    .createSignedUrl(objectPath, 60)
+
+  if (error || !data?.signedUrl) {
+    return {
+      ok: false,
+      error: toMessage(
+        error,
+        'That download is not available on your account. A licence or an active trial is needed.',
+      ),
+    }
+  }
+
+  return { ok: true, data: data.signedUrl }
+}
+
 export async function updatePassword(password: string): Promise<Result<null>> {
   const blocked = guard<null>()
   if (blocked) return blocked
@@ -424,6 +461,48 @@ export async function adminSetUserRole(
   const { error } = await supabase.from('profiles').update({ role }).eq('id', userId)
   if (error) return { ok: false, error: toMessage(error, 'Could not change that role.') }
   return { ok: true, data: null }
+}
+
+/**
+ * Upload a build and record it as the latest.
+ *
+ * Two steps that have to both happen: the file into the private bucket, then
+ * the row. The row is written by a database function that also clears the old
+ * `is_latest`, because doing that by hand is the step that gets forgotten.
+ *
+ * The upload goes first. A release row pointing at a file that is not there
+ * would show customers a download button that 404s, which is worse than not
+ * showing the release at all.
+ */
+export async function publishRelease(input: {
+  version: string
+  headline: string
+  notes: string
+  file: File
+}): Promise<Result<string>> {
+  const blocked = guard<string>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const path = `themixify-${input.version}.zip`
+
+  const { error: uploadError } = await supabase.storage
+    .from('releases')
+    .upload(path, input.file, { upsert: true, contentType: 'application/zip' })
+
+  if (uploadError) {
+    return { ok: false, error: toMessage(uploadError, 'Could not upload that file.') }
+  }
+
+  const { data, error } = await supabase.rpc('publish_release', {
+    p_version: input.version,
+    p_headline: input.headline,
+    p_notes: input.notes,
+    p_object_path: path,
+  })
+
+  if (error) return { ok: false, error: toMessage(error, 'Uploaded, but could not publish it.') }
+  return { ok: true, data: data as string }
 }
 
 /* ==========================================================================

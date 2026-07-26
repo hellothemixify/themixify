@@ -12,6 +12,7 @@ import {
   LogOut,
   Receipt,
   ShieldCheck,
+  UploadCloud,
   Users,
 } from 'lucide-react'
 import { LogoLockup } from '@/components/ui/Logo'
@@ -69,6 +70,7 @@ const ADMIN_LINKS = [
   { href: '/dashboard/admin', label: 'Overview', icon: Gauge },
   { href: '/dashboard/admin/license', label: 'License', icon: KeyRound },
   { href: '/dashboard/admin/users', label: 'User Manage', icon: Users },
+  { href: '/dashboard/admin/releases', label: 'Releases', icon: UploadCloud },
 ]
 
 export default function DashboardLayout({

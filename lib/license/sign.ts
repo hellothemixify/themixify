@@ -31,6 +31,9 @@ export type LicensePayload = {
     | 'unknown'
     | 'limit_reached'
     | 'released'
+    /** A trial that has run out. Distinct from `revoked` on purpose: one needs
+     *  to be told where to buy, the other that something went wrong. */
+    | 'expired'
   plan: string | null
   sites_allowed: number
   sites_used: number

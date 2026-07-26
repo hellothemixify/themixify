@@ -10,11 +10,13 @@ import {
   StatusChip,
   shortDate,
 } from '@/components/dashboard/ui'
-import { getReleases, type Release } from '@/lib/queries'
+import { getDownloadUrl, getReleases, type Release } from '@/lib/queries'
 
 export default function DownloadsPage() {
   const [releases, setReleases] = useState<Release[]>([])
   const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
 
   useEffect(() => {
     getReleases(30).then((result) => {
@@ -23,12 +25,39 @@ export default function DownloadsPage() {
     })
   }, [])
 
+  /**
+   * The stored value is an object path, not a URL. Entitlement is checked by
+   * the database when the signed link is minted, so a link cannot exist for
+   * somebody who is not entitled to one — and the link that comes back is dead
+   * within a minute, which makes it useless to forward.
+   */
+  async function download(release: Release) {
+    if (!release.download_url) return
+    setBusy(release.id)
+    setError('')
+
+    const result = await getDownloadUrl(release.download_url)
+    setBusy('')
+
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    window.location.href = result.data
+  }
+
   return (
     <>
       <PanelHead
         title="Downloads"
         subtitle="Every published build. Your licence key unlocks in-place updates from wp-admin, so this is only needed for a first install or a manual rollback."
       />
+
+      {error && (
+        <div className="surface-card mb-5 border-l-4 border-l-[#b3261e] p-4 text-[0.9rem] font-medium text-[#b3261e]">
+          {error}
+        </div>
+      )}
 
       <Panel padded={false}>
         {loading ? (
@@ -66,9 +95,13 @@ export default function DownloadsPage() {
                 </div>
 
                 {release.download_url ? (
-                  <Button href={release.download_url} variant="secondary">
+                  <Button
+                    variant="secondary"
+                    disabled={busy === release.id}
+                    onClick={() => download(release)}
+                  >
                     <Download size={15} strokeWidth={2.4} />
-                    Download zip
+                    {busy === release.id ? 'Preparing…' : 'Download zip'}
                   </Button>
                 ) : (
                   <span className="rounded-full border border-hairline px-4 py-2 text-[0.82rem] font-semibold text-ink-500">

@@ -73,6 +73,7 @@ export function AuthForm({
   const uid = useId()
   const nameId = `${uid}-name`
   const emailId = `${uid}-email`
+  const phoneId = `${uid}-phone`
   const passwordId = `${uid}-password`
 
   const configured = isSupabaseConfigured()
@@ -116,6 +117,7 @@ export function AuthForm({
         email,
         password,
         fullName: String(form.get('fullName') ?? ''),
+        phone: String(form.get('phone') ?? ''),
       })
       setBusy(false)
       if (!result.ok) {
@@ -187,6 +189,34 @@ export function AuthForm({
               className={FIELD}
               placeholder="Jane Ahmed"
             />
+          </div>
+        )}
+
+        {mode === 'signup' && (
+          <div>
+            <label
+              htmlFor={phoneId}
+              className="mb-1.5 block text-[0.8rem] font-bold text-ink-900"
+            >
+              WhatsApp number
+            </label>
+            <input
+              id={phoneId}
+              name="phone"
+              type="tel"
+              required
+              autoComplete="tel"
+              className={FIELD}
+              placeholder="+880 1XXX XXXXXX"
+            />
+            {/* Required, and it says why. Activation happens over WhatsApp, so
+                an account without a number is one nobody can reach — and being
+                asked for a phone number with no explanation is the point where
+                people close the tab. */}
+            <p className="mt-1.5 text-[0.78rem] leading-relaxed text-ink-500">
+              We activate accounts over WhatsApp, so this is how we reach you.
+              Nothing else is sent to it.
+            </p>
           </div>
         )}
 
