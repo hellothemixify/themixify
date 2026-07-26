@@ -43,7 +43,7 @@ export default function HomePage() {
             <div className="animate-rise">
               <Pill tone="warm" className="mb-6">
                 <Sparkles size={12} strokeWidth={3} />
-                World&apos;s first agentic-optimized theme
+                World&apos;s first Zero Plugin Free &amp; agentic-optimized theme
               </Pill>
 
               <h1 className="text-balance text-[2.6rem] font-extrabold leading-[1.04] tracking-[-0.03em] text-ink-950 sm:text-[3.6rem]">
@@ -55,9 +55,9 @@ export default function HomePage() {
               <p className="mt-6 max-w-xl text-pretty text-[1.08rem] leading-relaxed text-ink-700">
                 Themixify is the WordPress theme with the entire growth suite
                 built in — SEO, schema, caching, rank tracking, indexing,
-                analytics — and the first <strong>agentic layer</strong> that
-                lets ChatGPT, Perplexity, Claude and Google&apos;s AI Overviews
-                actually read, understand and quote your site.
+                analytics — and the first <strong>agentic layer</strong>{' '}
+                that lets ChatGPT, Perplexity, Claude and Google&apos;s AI
+                Overviews actually read, understand and quote your site.
               </p>
               <p className="mt-3 max-w-xl text-[1.02rem] font-semibold text-ink-900">
                 Zero plugins. One payment. Nothing ever renews.

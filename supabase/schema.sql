@@ -588,11 +588,39 @@ insert into public.releases (version, headline, notes, is_latest, released_at) v
 on conflict (version) do nothing;
 
 -- ----------------------------------------------------------------------------
--- 10. MAKE YOURSELF AN ADMIN
+-- 10. ADMINISTRATORS
 --
--- Sign up through the site first, then run this line with your own address.
--- It is left commented so that running this file never silently grants
--- anybody administrative access.
+-- The owner's address is promoted automatically the moment that account signs
+-- up. Doing it with a trigger rather than a manual UPDATE means the order of
+-- operations does not matter: run this file before or after signing up and the
+-- result is the same.
+--
+-- Add further addresses to the array to grant more administrators.
 -- ----------------------------------------------------------------------------
 
--- update public.profiles set role = 'admin' where lower(email) = lower('you@example.com');
+create or replace function public.grant_owner_admin()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  owners constant text[] := array['itsinjamul@gmail.com'];
+begin
+  if lower(new.email) = any (select lower(unnest(owners))) then
+    new.role := 'admin';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_profile_created_grant_admin on public.profiles;
+create trigger on_profile_created_grant_admin
+  before insert on public.profiles
+  for each row execute function public.grant_owner_admin();
+
+-- Promote the owner if the account already exists from an earlier run.
+update public.profiles
+   set role = 'admin'
+ where lower(email) = lower('itsinjamul@gmail.com')
+   and role <> 'admin';
