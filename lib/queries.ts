@@ -35,6 +35,12 @@ export type Profile = {
   country: string | null
   created_at: string
   last_active_at: string | null
+  /** Signing up does not grant access; somebody approves the account by hand. */
+  approval_status: 'pending' | 'approved' | 'suspended'
+  approved_at: string | null
+  /** Runs from approval rather than signup — see approve_account() in the schema. */
+  trial_ends_at: string | null
+  phone: string | null
 }
 
 export type License = {
@@ -417,6 +423,132 @@ export async function adminSetUserRole(
   const supabase = createClient()
   const { error } = await supabase.from('profiles').update({ role }).eq('id', userId)
   if (error) return { ok: false, error: toMessage(error, 'Could not change that role.') }
+  return { ok: true, data: null }
+}
+
+/* ==========================================================================
+   ADMIN — accounts, approval and money
+   ========================================================================== */
+
+/** One row per account: who they are, what they bought, what they have paid. */
+export type AdminAccount = {
+  id: string
+  email: string
+  full_name: string | null
+  phone: string | null
+  role: 'user' | 'admin'
+  approval_status: 'pending' | 'approved' | 'suspended'
+  approved_at: string | null
+  trial_ends_at: string | null
+  created_at: string
+  last_active_at: string | null
+  license_id: string | null
+  license_key: string | null
+  plan_id: string | null
+  license_status: string | null
+  price_cents: number
+  paid_cents: number
+  sites_allowed: number
+  sites_used: number
+  /** owner never counts as revenue; partial is paid > 0 but short of the price. */
+  payment_state: 'owner' | 'paid' | 'partial' | 'unpaid'
+  access_state: 'licensed' | 'trial' | 'trial_expired' | 'none'
+}
+
+export type AdminRevenue = {
+  total_paid_cents: number
+  total_quoted_cents: number
+  outstanding_cents: number
+  accounts: number
+  owners: number
+  paid: number
+  partial: number
+  unpaid: number
+  pending: number
+  on_trial: number
+  trial_expired: number
+  licensed: number
+}
+
+export async function adminListAccounts(search = ''): Promise<Result<AdminAccount[]>> {
+  const blocked = guard<AdminAccount[]>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase.rpc('admin_list_accounts', { p_search: search })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not load accounts.') }
+  return { ok: true, data: (data ?? []) as AdminAccount[] }
+}
+
+export async function adminRevenue(): Promise<Result<AdminRevenue>> {
+  const blocked = guard<AdminRevenue>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { data, error } = await supabase.rpc('admin_revenue')
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not load revenue.') }
+  return { ok: true, data: data as AdminRevenue }
+}
+
+/** Approve a pending account and start its trial clock. */
+export async function adminApproveAccount(
+  userId: string,
+  trialDays = 7,
+): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.rpc('approve_account', {
+    p_user_id: userId,
+    p_trial_days: trialDays,
+  })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not approve that account.') }
+  return { ok: true, data: null }
+}
+
+export async function adminSetAccountStatus(
+  userId: string,
+  status: 'pending' | 'approved' | 'suspended',
+): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.rpc('set_account_status', {
+    p_user_id: userId,
+    p_status: status,
+  })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not change that status.') }
+  return { ok: true, data: null }
+}
+
+/**
+ * Record what a customer owes and what has arrived.
+ *
+ * Two numbers rather than one, because partial payment is the normal case here
+ * and a single "amount" field cannot express it.
+ */
+export async function adminSetLicenseMoney(
+  licenseId: string,
+  priceCents: number,
+  paidCents: number,
+): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.rpc('set_license_money', {
+    p_license_id: licenseId,
+    p_price_cents: Math.max(0, Math.round(priceCents)),
+    p_paid_cents: Math.max(0, Math.round(paidCents)),
+  })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not save that.') }
   return { ok: true, data: null }
 }
 

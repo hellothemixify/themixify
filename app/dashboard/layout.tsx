@@ -15,6 +15,7 @@ import {
   Users,
 } from 'lucide-react'
 import { LogoLockup } from '@/components/ui/Logo'
+import { PendingApproval } from '@/components/dashboard/PendingApproval'
 import { getCurrentProfile, signOut, type Profile } from '@/lib/queries'
 import { isSupabaseConfigured } from '@/lib/supabase/client'
 
@@ -148,6 +149,20 @@ export default function DashboardLayout({
   }
 
   if (state === 'anon' || !profile) return null
+
+  // Approval comes before everything else. An admin is approved by definition —
+  // the owner accounts are created by us — so the gate never locks out the
+  // person who would have to unlock it.
+  if (profile.role !== 'admin' && profile.approval_status !== 'approved') {
+    return (
+      <>
+        <AppBar profile={profile} />
+        <main id="main" className="container-page">
+          <PendingApproval profile={profile} />
+        </main>
+      </>
+    )
+  }
 
   const isAdmin = profile.role === 'admin'
 

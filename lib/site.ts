@@ -22,6 +22,20 @@ export const SITE = {
    TOP BAR
    ========================================================================== */
 
+/**
+ * Where a customer reaches a human.
+ *
+ * Not a support form. This is sold one licence at a time to people who expect
+ * to talk to someone before they pay, and a contact form is where that
+ * conversation goes to die.
+ */
+export const SUPPORT = {
+  /** International format, no + or spaces — wa.me wants it bare. */
+  whatsapp: '8801767682381',
+  telegram: 'https://t.me/themixify',
+  display: '+880 1767 682381',
+} as const
+
 export const TOP_BAR = {
   badge: 'LIFETIME DEAL',
   message:
