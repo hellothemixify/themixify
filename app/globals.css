@@ -144,6 +144,37 @@ body::before {
   border-radius: 6px;
 }
 
+/* Anything you can click says so under the cursor.
+ *
+ * A <button> resolves to cursor: default in every browser, which is a holdover
+ * from native desktop widgets and has nothing to do with how the web actually
+ * reads now — a link gets a hand, and to a visitor a button that does not is
+ * indistinguishable from decoration. Tailwind's reset does not change this, so
+ * the whole site inherited it.
+ *
+ * Disabled controls are excluded: the pointer would promise something that is
+ * not going to happen. `not-allowed` says the opposite, and says it correctly. */
+button,
+[role='button'],
+summary,
+label[for],
+select,
+a[href],
+input[type='submit'],
+input[type='button'],
+input[type='reset'],
+input[type='checkbox'],
+input[type='radio'] {
+  cursor: pointer;
+}
+
+button:disabled,
+[role='button'][aria-disabled='true'],
+select:disabled,
+input:disabled {
+  cursor: not-allowed;
+}
+
 /* ==========================================================================
    Utilities
    ========================================================================== */

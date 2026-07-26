@@ -6,10 +6,12 @@ import { useEffect, useState } from 'react'
 import { Menu, X } from 'lucide-react'
 import { LogoLockup } from '@/components/ui/Logo'
 import { Button } from '@/components/ui/primitives'
+import { AuthModal } from '@/components/auth/AuthModal'
 import { NAV } from '@/lib/site'
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false)
+  const [authOpen, setAuthOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const pathname = usePathname()
 
@@ -77,7 +79,7 @@ export function SiteHeader() {
         </nav>
 
         <div className="hidden items-center gap-2.5 lg:flex">
-          <Button href="/login" variant="ghost" size="md">
+          <Button variant="ghost" size="md" onClick={() => setAuthOpen(true)}>
             Sign in
           </Button>
           <Button href="/pricing" variant="primary" size="md">
@@ -109,7 +111,14 @@ export function SiteHeader() {
               </Link>
             ))}
             <div className="mt-3 flex flex-col gap-2.5">
-              <Button href="/login" variant="secondary" size="lg">
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={() => {
+                  setOpen(false)
+                  setAuthOpen(true)
+                }}
+              >
                 Sign in
               </Button>
               <Button href="/pricing" variant="primary" size="lg">
@@ -119,6 +128,8 @@ export function SiteHeader() {
           </div>
         </div>
       )}
+
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
     </header>
   )
 }

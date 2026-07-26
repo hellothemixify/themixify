@@ -171,11 +171,47 @@ export async function requestPasswordReset(email: string): Promise<Result<null>>
 
   const supabase = createClient()
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    // /reset-password, not /login. The link carries a one-time recovery
+    // session, and the only thing that session is good for is setting a new
+    // password — dropping the visitor on the sign-in form would ask them for
+    // the very password they just told us they cannot remember.
     redirectTo:
-      typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined,
+      typeof window !== 'undefined'
+        ? `${window.location.origin}/reset-password`
+        : undefined,
   })
   if (error) return { ok: false, error: toMessage(error, 'Could not send the reset email.') }
   return { ok: true, data: null }
+}
+
+/**
+ * Set a new password for whoever the current session belongs to.
+ *
+ * Called from the reset page, where the session came from the emailed recovery
+ * link, and safe to call from a signed-in account screen later — Supabase
+ * applies it to the caller's own user and nobody else's.
+ */
+export async function updatePassword(password: string): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.auth.updateUser({ password })
+  if (error) return { ok: false, error: toMessage(error, 'Could not update the password.') }
+  return { ok: true, data: null }
+}
+
+/**
+ * Whether a usable session exists right now.
+ *
+ * The reset page needs to know the difference between "the recovery link
+ * worked" and "the link was already used or has expired", and those two look
+ * identical until the session is checked.
+ */
+export async function hasSession(): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false
+  const { data } = await createClient().auth.getSession()
+  return Boolean(data.session)
 }
 
 export async function getCurrentProfile(): Promise<Result<Profile | null>> {
