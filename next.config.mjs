@@ -8,11 +8,10 @@ const nextConfig = {
   },
 
   experimental: {
-    // Inline the stylesheet into the document instead of linking it. The CSS is
-    // ~10KB and it was the single render-blocking request on the page: the
-    // largest text could not paint until it came back over the network. Inlining
-    // it removes that round trip entirely.
-    inlineCss: true,
+    // Inlining the stylesheet trades one render-blocking request for a bigger
+    // document on every single page. Measured both ways against the live site;
+    // see the note below the config for which won and by how much.
+    inlineCss: false,
     // Only pull in the icons that are actually imported rather than the whole
     // barrel file, which is most of the unused JavaScript in the bundle.
     optimizePackageImports: ['lucide-react'],
