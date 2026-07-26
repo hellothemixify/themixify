@@ -1,0 +1,16 @@
+# Cloudflare Workers Static Assets header rules.
+#
+# Everything under public/ is served by Cloudflare's asset layer, which runs
+# before the Worker — so the headers() block in next.config.mjs never sees these
+# requests and they were going out with max-age=0. These files are not
+# content-hashed, so they get a day in the browser cache and a week of
+# stale-while-revalidate rather than an immutable year; renaming one is not an
+# option, but waiting a day for a logo change is fine.
+/og.png
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+/logo.webp
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+/icon-192.webp
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+/icon-512.webp
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800

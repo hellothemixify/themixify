@@ -88,17 +88,10 @@ const nextConfig = {
       // /_next/static is deliberately not listed: Next already serves it with
       // `max-age=31536000, immutable`, and overriding it here breaks the dev
       // server's asset invalidation for no gain.
-      {
-        // Brand assets are not content-hashed, so they get a long browser TTL
-        // with a stale-while-revalidate window rather than an immutable one.
-        source: '/:file(og.png|logo.webp|icon-192.webp|icon-512.webp)',
-        headers: [
-          {
-            key: 'Cache-Control',
-            value: 'public, max-age=86400, stale-while-revalidate=604800',
-          },
-        ],
-      },
+      // Brand assets are deliberately not listed here. In production they are
+      // served by Cloudflare's static asset layer, which runs ahead of the
+      // Worker, so a rule in this file would never be consulted — their caching
+      // lives in public/_headers instead, next to the files themselves.
     ]
   },
 }
