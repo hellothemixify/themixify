@@ -888,3 +888,246 @@ $fn$;
 
 /* Callable without a session: the caller is a WordPress install, not a person. */
 grant execute on function public.license_check(text, text, text, jsonb) to anon, authenticated;
+/* ==========================================================================
+   APPROVAL, TRIAL AND THE MONEY
+   ==========================================================================
+   Signing up does not get you in. An account is created in `pending`, the
+   customer is shown how to reach us, and somebody approves it by hand. That is
+   deliberate for a product sold one licence at a time in a market where the
+   payment often happens over WhatsApp or bKash before any software is
+   involved — the approval step is where a real conversation gets recorded
+   against a real row.
+
+   Two money columns, not one, and this is the part most licence schemas get
+   wrong: `price_cents` is what the customer was quoted and `paid_cents` is what
+   has actually arrived. Collapsing them into a single "amount" makes partial
+   payment unrepresentable, and partial payment is the normal case here. Income
+   is the sum of what arrived, never the sum of what was agreed.
+
+   A price of zero means an owner rather than a free customer. Two people run
+   this, both need full access, and neither is revenue.
+   ========================================================================== */
+
+-- Approval and trial state -----------------------------------------------------
+alter table public.profiles
+  add column if not exists approval_status text not null default 'pending'
+    check (approval_status in ('pending', 'approved', 'suspended')),
+  add column if not exists approved_at   timestamptz,
+  add column if not exists approved_by   uuid references public.profiles (id) on delete set null,
+  add column if not exists phone         text,
+  add column if not exists trial_ends_at timestamptz,
+  add column if not exists notes         text;
+
+create index if not exists profiles_approval_idx on public.profiles (approval_status);
+
+/* What the customer was quoted, and what has actually turned up.
+   Kept on the licence rather than the order because the number that gets
+   renegotiated over a chat window is the licence, and orders are meant to be an
+   immutable record of a transaction. */
+alter table public.licenses
+  add column if not exists price_cents integer not null default 0 check (price_cents >= 0),
+  add column if not exists paid_cents  integer not null default 0 check (paid_cents  >= 0);
+
+/* The two owners. Recognised by a zero price rather than by a hard-coded list
+   of email addresses, so adding a third partner later is a data change and not
+   a deploy. */
+create or replace function public.license_is_owner(p_price_cents integer, p_role text)
+returns boolean
+language sql
+immutable
+as $$
+  select p_role = 'admin' or coalesce(p_price_cents, 0) = 0;
+$$;
+
+/* Approve an account, start its trial ---------------------------------------
+   The trial runs from approval, not from signup. Somebody who signs up on a
+   Friday and gets approved on a Monday has not used three days of anything, and
+   billing them for it is the kind of small unfairness that turns into a refund
+   request and a bad review. */
+create or replace function public.approve_account(p_user_id uuid, p_trial_days integer default 7)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  update public.profiles
+     set approval_status = 'approved',
+         approved_at     = coalesce(approved_at, now()),
+         approved_by     = auth.uid(),
+         trial_ends_at   = coalesce(trial_ends_at, now() + make_interval(days => greatest(p_trial_days, 0)))
+   where id = p_user_id;
+end;
+$fn$;
+
+grant execute on function public.approve_account(uuid, integer) to authenticated;
+
+create or replace function public.set_account_status(p_user_id uuid, p_status text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  if p_status not in ('pending', 'approved', 'suspended') then
+    raise exception 'Unknown status';
+  end if;
+
+  update public.profiles set approval_status = p_status where id = p_user_id;
+end;
+$fn$;
+
+grant execute on function public.set_account_status(uuid, text) to authenticated;
+
+/* Record what a customer owes and what they have paid ------------------------
+   One function rather than a direct table update, so the admin client never
+   needs write access to `licenses` and every change goes through the same
+   authorisation check. */
+create or replace function public.set_license_money(
+  p_license_id uuid,
+  p_price_cents integer,
+  p_paid_cents integer
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  update public.licenses
+     set price_cents = greatest(coalesce(p_price_cents, 0), 0),
+         paid_cents  = greatest(coalesce(p_paid_cents, 0), 0)
+   where id = p_license_id;
+end;
+$fn$;
+
+grant execute on function public.set_license_money(uuid, integer, integer) to authenticated;
+
+/* Everything the User Manage screen needs, in one row per account ------------
+   Assembled here rather than in the browser because the payment state is a
+   judgement made from three columns at once — quoted, paid, and role — and
+   three different screens computing it three slightly different ways is how a
+   revenue figure ends up disagreeing with itself. */
+create or replace view public.admin_accounts as
+select
+  p.id,
+  p.email,
+  p.full_name,
+  p.phone,
+  p.role,
+  p.approval_status,
+  p.approved_at,
+  p.trial_ends_at,
+  p.created_at,
+  p.last_active_at,
+  l.id                                as license_id,
+  l.license_key,
+  l.plan_id,
+  l.status                            as license_status,
+  coalesce(l.price_cents, 0)          as price_cents,
+  coalesce(l.paid_cents, 0)           as paid_cents,
+  coalesce(l.sites_allowed, 0)        as sites_allowed,
+  (
+    select count(*) from public.license_activations a
+     where a.license_id = l.id and a.status = 'active'
+  )                                   as sites_used,
+  case
+    when p.role = 'admin' or coalesce(l.price_cents, 0) = 0 then 'owner'
+    when coalesce(l.paid_cents, 0) >= coalesce(l.price_cents, 0) then 'paid'
+    when coalesce(l.paid_cents, 0) > 0                          then 'partial'
+    else 'unpaid'
+  end                                 as payment_state,
+  case
+    when l.id is not null and l.status = 'active' then 'licensed'
+    when p.trial_ends_at is not null and p.trial_ends_at > now() then 'trial'
+    when p.trial_ends_at is not null then 'trial_expired'
+    else 'none'
+  end                                 as access_state
+from public.profiles p
+left join lateral (
+  select * from public.licenses
+   where user_id = p.id
+   order by created_at desc
+   limit 1
+) l on true;
+
+/* Revenue, counted once ------------------------------------------------------
+   Income is the sum of what arrived, not the sum of what was agreed. Owners are
+   excluded: two people run this and neither of them is a customer. */
+create or replace function public.admin_revenue()
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $fn$
+  select case when not public.is_admin() then jsonb_build_object('error', 'Not authorised')
+  else (
+    select jsonb_build_object(
+      'total_paid_cents',    coalesce(sum(paid_cents)  filter (where payment_state <> 'owner'), 0),
+      'total_quoted_cents',  coalesce(sum(price_cents) filter (where payment_state <> 'owner'), 0),
+      'outstanding_cents',   coalesce(sum(greatest(price_cents - paid_cents, 0))
+                                        filter (where payment_state <> 'owner'), 0),
+      'accounts',            count(*),
+      'owners',              count(*) filter (where payment_state = 'owner'),
+      'paid',                count(*) filter (where payment_state = 'paid'),
+      'partial',             count(*) filter (where payment_state = 'partial'),
+      'unpaid',              count(*) filter (where payment_state = 'unpaid'),
+      'pending',             count(*) filter (where approval_status = 'pending'),
+      'on_trial',            count(*) filter (where access_state = 'trial'),
+      'trial_expired',       count(*) filter (where access_state = 'trial_expired'),
+      'licensed',            count(*) filter (where access_state = 'licensed')
+    )
+    from public.admin_accounts
+  ) end;
+$fn$;
+
+grant execute on function public.admin_revenue() to authenticated;
+
+/* The view inherits nothing from RLS, so it is locked at the grant level and
+   every consumer is an admin-only screen. */
+revoke all on public.admin_accounts from anon, authenticated;
+
+create or replace function public.admin_list_accounts(p_search text default '')
+returns setof public.admin_accounts
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  return query
+    select * from public.admin_accounts
+     where coalesce(p_search, '') = ''
+        or email     ilike '%' || p_search || '%'
+        or coalesce(full_name, '') ilike '%' || p_search || '%'
+        or coalesce(phone, '')     ilike '%' || p_search || '%'
+        or coalesce(license_key, '') ilike '%' || p_search || '%'
+     order by created_at desc;
+end;
+$fn$;
+
+grant execute on function public.admin_list_accounts(text) to authenticated;
+
+/* Existing accounts predate approval, and locking out the people already using
+   the product in order to introduce a gate for new ones would be a strange way
+   to ship a feature. */
+update public.profiles
+   set approval_status = 'approved',
+       approved_at     = coalesce(approved_at, created_at)
+ where approval_status = 'pending'
+   and created_at < now();
