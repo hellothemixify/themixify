@@ -35,12 +35,14 @@ export const TOP_BAR = {
    ========================================================================== */
 
 export const NAV = [
+  { label: 'Home', href: '/' },
   { label: 'Features', href: '/features' },
   { label: 'Zero Plugin', href: '/zero-plugin' },
   { label: 'Agentic SEO', href: '/agentic' },
   { label: 'Pricing', href: '/pricing' },
   { label: 'Docs', href: '/docs' },
   { label: 'FAQ', href: '/faq' },
+  { label: 'Contact', href: '/contact' },
 ] as const
 
 /* ==========================================================================
@@ -305,8 +307,8 @@ export const AGENTIC_ENDPOINTS = [
   { path: '/any-post.md', what: 'The Markdown twin of that article, with YAML front matter.' },
   { path: '/.well-known/agent.json', what: 'What this site is, what it holds, and the calls an agent may make.' },
   { path: '/.well-known/openapi.json', what: 'A machine-readable specification of the public read API.' },
-  { path: '/wp-json/themify/v1/index', what: 'Every published URL with title, summary, author and dates.' },
-  { path: '/wp-json/themify/v1/search?q=', what: 'Ranked search results as JSON, so agents query instead of crawling.' },
+  { path: '/wp-json/themixify/v1/index', what: 'Every published URL with title, summary, author and dates.' },
+  { path: '/wp-json/themixify/v1/search?q=', what: 'Ranked search results as JSON, so agents query instead of crawling.' },
   { path: '/robots.txt', what: 'Your per-crawler AI policy, written out in full.' },
 ]
 

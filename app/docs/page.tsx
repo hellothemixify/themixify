@@ -61,7 +61,7 @@ const BLOCKS = [
   ['[tf_facts]', 'At-a-glance facts. "Label | Value" per line.'],
   ['[tf_sources]', 'Reference list. "Name | URL | Date" per line.'],
   ['[tf_updated date="2026-03-12"]', 'An update-log note describing what changed.'],
-  ['[themify_faq]', 'FAQ accordion. "Q:" and "A:" lines. Emits FAQPage schema.'],
+  ['[themixify_faq]', 'FAQ accordion. "Q:" and "A:" lines. Emits FAQPage schema.'],
 ]
 
 const PANELS = [
