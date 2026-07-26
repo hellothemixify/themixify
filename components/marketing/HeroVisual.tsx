@@ -27,16 +27,13 @@ export function HeroVisual() {
   return (
     <div className="relative mx-auto w-full max-w-[560px] lg:max-w-none">
       {/* Floating traffic pill */}
-      <div className="absolute -left-2 -top-3 z-30 hidden animate-float items-center gap-1.5 rounded-full bg-white px-3.5 py-2 text-[0.78rem] font-bold text-ink-950 shadow-lift sm:inline-flex">
+      <div className="absolute -left-2 -top-3 z-30 hidden items-center gap-1.5 rounded-full bg-white px-3.5 py-2 text-[0.78rem] font-bold text-ink-950 shadow-lift sm:inline-flex">
         <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
         +38% organic traffic
       </div>
 
       {/* Health score dial */}
-      <div
-        className="absolute -right-1 -top-6 z-30 hidden w-[160px] rounded-3xl bg-white p-4 text-center shadow-lift sm:block"
-        style={{ animation: 'float 7s ease-in-out infinite 1.4s' }}
-      >
+      <div className="absolute -right-1 -top-6 z-30 hidden w-[160px] rounded-3xl bg-white p-4 text-center shadow-lift sm:block">
         <div className="relative mx-auto h-[92px] w-[92px]">
           <div
             className="h-full w-full rounded-full"

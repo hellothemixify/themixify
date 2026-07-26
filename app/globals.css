@@ -72,39 +72,19 @@
     0 24px 56px -20px rgba(78, 34, 148, 0.28);
   --shadow-glow: 0 18px 40px -14px rgba(139, 92, 246, 0.55);
 
-  --animate-float: float 7s ease-in-out infinite;
-  --animate-drift: drift 22s linear infinite;
-  --animate-rise: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-}
-
-@keyframes drift {
-  from {
-    background-position: 0% 50%;
-  }
-  to {
-    background-position: 200% 50%;
-  }
-}
-
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+/* There are deliberately no animation tokens here.
+ *
+ * The hero used to have two chips bobbing on an infinite loop and a headline
+ * that faded up on load. Both looked fine and both were expensive: an animation
+ * that never ends means the viewport never stops changing, which is exactly
+ * what Speed Index measures — it put Speed Index at 4.0s against a Largest
+ * Contentful Paint of 1.8s, and cost more points than every other issue on the
+ * page combined. The fade-up delayed the moment the headline counted as
+ * painted at all.
+ *
+ * Depth in this design comes from the lift shadows and the offset stacking, not
+ * from motion. Anything added back here should be finite and should not run
+ * inside the first few seconds of a page load. */
 }
 
 /* ==========================================================================
