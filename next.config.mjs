@@ -20,12 +20,24 @@ const nextConfig = {
   // the Worker. Two hostnames serving the same pages would split the ranking
   // signals for every URL on the site — which, for a product whose whole pitch
   // is search visibility, would be an embarrassing thing to get wrong.
+  // Split into two rules on purpose. With a single `/:path*` and an absolute
+  // destination, the homepage matches with an empty path and Next emits the
+  // literal ":path*" in the Location header instead of substituting it. `/:path+`
+  // requires at least one segment, and the root is handled explicitly.
   async redirects() {
+    const fromWww = [{ type: 'host', value: 'www.themixify.com' }]
+
     return [
       {
-        source: '/:path*',
-        has: [{ type: 'host', value: 'www.themixify.com' }],
-        destination: 'https://themixify.com/:path*',
+        source: '/',
+        has: fromWww,
+        destination: 'https://themixify.com/',
+        permanent: true,
+      },
+      {
+        source: '/:path+',
+        has: fromWww,
+        destination: 'https://themixify.com/:path+',
         permanent: true,
       },
     ]
