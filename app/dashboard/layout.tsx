@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
+  ArrowUpRight,
   Download,
   Gauge,
   KeyRound,
@@ -13,8 +14,48 @@ import {
   ShieldCheck,
   Users,
 } from 'lucide-react'
+import { LogoLockup } from '@/components/ui/Logo'
 import { getCurrentProfile, signOut, type Profile } from '@/lib/queries'
 import { isSupabaseConfigured } from '@/lib/supabase/client'
+
+/**
+ * The dashboard's own top bar.
+ *
+ * Deliberately not the marketing header. Someone who has already paid does not
+ * need a lifetime-deal banner and a "Get Themixify" button across the top of
+ * their own licence keys — that is a sales surface, and leaving it here makes a
+ * product feel like a landing page. This is the logo, a way back to the public
+ * site, and who you are signed in as.
+ */
+function AppBar({ profile }: { profile: Profile }) {
+  const initial = (profile.full_name ?? profile.email).charAt(0).toUpperCase()
+
+  return (
+    <header className="sticky top-0 z-40 border-b border-hairline bg-white/85 backdrop-blur-xl">
+      <div className="container-page flex h-[62px] items-center justify-between gap-4">
+        <Link href="/dashboard" aria-label="Dashboard" className="shrink-0">
+          <LogoLockup size={30} id="app" />
+        </Link>
+
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            className="hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-[0.86rem] font-semibold text-ink-700 transition hover:bg-brand-50 hover:text-brand-700 sm:inline-flex"
+          >
+            View site
+            <ArrowUpRight size={14} strokeWidth={2.4} />
+          </Link>
+          <span
+            title={profile.email}
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(130deg,#8b5cf6,#ec4899)] text-[0.85rem] font-extrabold text-white"
+          >
+            {initial}
+          </span>
+        </div>
+      </div>
+    </header>
+  )
+}
 
 const ACCOUNT_LINKS = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -111,7 +152,9 @@ export default function DashboardLayout({
   const isAdmin = profile.role === 'admin'
 
   return (
-    <div className="container-page py-10">
+    <>
+      <AppBar profile={profile} />
+      <main id="main" className="container-page py-8">
       <div className="grid gap-8 lg:grid-cols-[236px_1fr]">
         {/* Sidebar */}
         <aside className="lg:sticky lg:top-24 lg:self-start">
@@ -175,7 +218,8 @@ export default function DashboardLayout({
 
         <div className="min-w-0">{children}</div>
       </div>
-    </div>
+      </main>
+    </>
   )
 }
 

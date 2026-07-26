@@ -3,8 +3,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Menu, X } from 'lucide-react'
+import { LayoutDashboard, Menu, X } from 'lucide-react'
 import { LogoLockup } from '@/components/ui/Logo'
+import { hasSessionCookie } from '@/lib/supabase/session-hint'
 import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/primitives'
 import { NAV } from '@/lib/site'
@@ -30,6 +31,9 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  // Read after mount, never during render: the server has no cookies and
+  // guessing would mean rendering one header and then swapping it.
+  const [signedIn, setSignedIn] = useState(false)
   const pathname = usePathname()
 
   // The header gains its border and blur only once the page has moved, so at
@@ -45,6 +49,12 @@ export function SiteHeader() {
   // change is the classic way a mobile menu ends up covering the new page.
   useEffect(() => {
     setOpen(false)
+  }, [pathname])
+
+  // Re-checked on navigation so signing out from the dashboard is reflected
+  // when the visitor lands back on the public site.
+  useEffect(() => {
+    setSignedIn(hasSessionCookie())
   }, [pathname])
 
   useEffect(() => {
@@ -96,9 +106,21 @@ export function SiteHeader() {
         </nav>
 
         <div className="hidden items-center gap-2.5 lg:flex">
-          <Button variant="ghost" size="md" onClick={() => setAuthOpen(true)}>
-            Sign in
-          </Button>
+          {signedIn ? (
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2 rounded-full border border-hairline bg-white py-1.5 pl-3 pr-1.5 text-[0.88rem] font-semibold text-ink-800 shadow-soft transition hover:border-brand-300 hover:text-brand-700"
+            >
+              Dashboard
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[linear-gradient(130deg,#8b5cf6,#ec4899)] text-white">
+                <LayoutDashboard size={13} strokeWidth={2.6} />
+              </span>
+            </Link>
+          ) : (
+            <Button variant="ghost" size="md" onClick={() => setAuthOpen(true)}>
+              Sign in
+            </Button>
+          )}
           <Button href="/pricing" variant="primary" size="md">
             Get Themixify
           </Button>
@@ -128,16 +150,22 @@ export function SiteHeader() {
               </Link>
             ))}
             <div className="mt-3 flex flex-col gap-2.5">
-              <Button
-                variant="secondary"
-                size="lg"
-                onClick={() => {
-                  setOpen(false)
-                  setAuthOpen(true)
-                }}
-              >
-                Sign in
-              </Button>
+              {signedIn ? (
+                <Button href="/dashboard" variant="secondary" size="lg">
+                  Dashboard
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  onClick={() => {
+                    setOpen(false)
+                    setAuthOpen(true)
+                  }}
+                >
+                  Sign in
+                </Button>
+              )}
               <Button href="/pricing" variant="primary" size="lg">
                 Get Themixify
               </Button>

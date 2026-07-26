@@ -1,10 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
-import { TopBar } from '@/components/layout/TopBar'
-import { SiteHeader } from '@/components/layout/SiteHeader'
-import { SiteFooter } from '@/components/layout/SiteFooter'
-import { FloatingActions } from '@/components/layout/FloatingActions'
 import { PLANS, SITE } from '@/lib/site'
 
 /**
@@ -210,11 +206,7 @@ export default function RootLayout({
         >
           Skip to content
         </a>
-        <TopBar />
-        <SiteHeader />
-        <main id="main">{children}</main>
-        <SiteFooter />
-        <FloatingActions />
+        {children}
       </body>
     </html>
   )
