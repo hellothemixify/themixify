@@ -259,6 +259,73 @@ body::before {
   -webkit-overflow-scrolling: touch;
 }
 
+/* ==========================================================================
+   Scrollbar
+   ==========================================================================
+   The default grey bar is the one piece of chrome that sits on every page and
+   belongs to nobody. This gives it the same gradient as the logo and the
+   headline accents, so the edge of the window reads as part of the design
+   rather than as part of the browser.
+
+   Deliberately restrained: 10px wide with a 3px inset, so it is a slim
+   gradient line rather than a coloured slab. Anything heavier turns into a
+   second vertical rule fighting the content for attention on every scroll.
+
+   Firefox gets the two-property standard version; Chrome, Edge and Safari get
+   the -webkit- pseudo-elements. Both are specified because neither one covers
+   the whole audience yet, and a scrollbar is the last place to be clever. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-brand-400) var(--color-brand-50);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-brand-50);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    var(--color-brand-500),
+    var(--color-flare-500) 60%,
+    var(--color-ember-600)
+  );
+  border-radius: 999px;
+  /* A transparent border with background-clip is the only way to inset a
+     scrollbar thumb — there is no padding on this pseudo-element. */
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    var(--color-brand-600),
+    var(--color-flare-600) 60%,
+    var(--color-ember-700)
+  );
+  background-clip: padding-box;
+  border: 3px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--color-brand-50);
+}
+
+/* The horizontal bar under a wide comparison table is a smaller affair: it
+   appears inside a card, so it takes the card's scale rather than the page's. */
+.table-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+.table-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -4,6 +4,7 @@ import './globals.css'
 import { TopBar } from '@/components/layout/TopBar'
 import { SiteHeader } from '@/components/layout/SiteHeader'
 import { SiteFooter } from '@/components/layout/SiteFooter'
+import { FloatingActions } from '@/components/layout/FloatingActions'
 import { PLANS, SITE } from '@/lib/site'
 
 /**
@@ -213,6 +214,7 @@ export default function RootLayout({
         <SiteHeader />
         <main id="main">{children}</main>
         <SiteFooter />
+        <FloatingActions />
       </body>
     </html>
   )
