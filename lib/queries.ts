@@ -93,6 +93,8 @@ export type AdminOverview = {
   active_users: number
   total_licenses: number
   active_licenses: number
+  /** Counted apart from paid licences — see admin_overview() in the schema. */
+  trial_licenses: number
   total_activations: number
   revenue_cents: number
   orders_paid: number
@@ -318,9 +320,18 @@ export async function getMyLicenses(): Promise<Result<License[]>> {
   if (blocked) return blocked
 
   const supabase = createClient()
+  const { data: auth } = await supabase.auth.getUser()
+  if (!auth.user) return { ok: true, data: [] }
+
+  // Filtered explicitly rather than left to row-level security. The policy on
+  // licences also grants administrators every row — which is right for the
+  // admin screens and wrong here, where it meant an owner opening "My licences"
+  // saw customers' keys listed as their own. RLS decides what you *may* read;
+  // it cannot express what this page *means*.
   const { data, error } = await supabase
     .from('licenses_with_usage')
     .select('*')
+    .eq('user_id', auth.user.id)
     .order('created_at', { ascending: false })
 
   if (error) return { ok: false, error: toMessage(error, 'Could not load your licences.') }

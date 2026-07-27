@@ -74,21 +74,29 @@ export default function AdminOverviewPage() {
       )}
 
       <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Every figure here excludes owner accounts. The subtitle promises
+            customers, and counting ourselves as customers is how a dashboard
+            starts lying to the people who built it. */}
         <StatCard
-          label="Total users"
+          label="Customers"
           value={loading ? '—' : (data?.total_users ?? 0).toLocaleString()}
           hint={data ? `${data.new_users_30d} joined in 30 days` : undefined}
           icon={<Users size={15} />}
         />
         <StatCard
-          label="Active licences"
+          label="Paid licences"
           value={loading ? '—' : (data?.active_licenses ?? 0).toLocaleString()}
-          hint={data ? `${data.total_licenses} issued in total` : undefined}
+          hint={
+            data
+              ? `${data.trial_licenses} on trial · ${data.total_licenses} issued in total`
+              : undefined
+          }
           icon={<KeyRound size={15} />}
         />
         <StatCard
           label="Sites activated"
           value={loading ? '—' : (data?.total_activations ?? 0).toLocaleString()}
+          hint="On customer licences"
           icon={<Globe size={15} />}
         />
         <StatCard

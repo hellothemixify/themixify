@@ -1887,3 +1887,112 @@ as $fn$
 $fn$;
 
 grant execute on function public.admin_revenue() to authenticated;
+
+/* ==========================================================================
+   COUNT CUSTOMERS, NOT OURSELVES
+   ==========================================================================
+   The Overview says "Usage across every Themixify customer" and then counted
+   the two people who own the company as customers. With two partners and two
+   hundred customers that is a rounding error; with two partners and one
+   customer it makes every number on the screen wrong, which is worse than
+   showing no number at all — a wrong figure gets acted on.
+
+   Two separate corrections here, and they are different kinds of mistake:
+
+   1. Owners are excluded from the customer metrics. An admin's own licence,
+      their own activated site and their own account are not business results.
+
+   2. Trials are counted apart from paid licences. Lumping them together makes
+      "active licences" mean two incompatible things at once — someone
+      evaluating for a week, and someone who has paid — and the number gets
+      quoted as if it were the second.
+   ========================================================================== */
+
+create or replace function public.admin_overview()
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  result json;
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised' using errcode = '42501';
+  end if;
+
+  select json_build_object(
+    /* Customers only. An owner account is staff. */
+    'total_users',        (select count(*) from public.profiles
+                            where role <> 'admin'),
+    'active_users',       (select count(*) from public.profiles
+                            where role <> 'admin'
+                              and last_active_at > now() - interval '30 days'),
+    'new_users_30d',      (select count(*) from public.profiles
+                            where role <> 'admin'
+                              and created_at > now() - interval '30 days'),
+
+    'total_licenses',     (select count(*) from public.licenses l
+                            join public.profiles p on p.id = l.user_id
+                            where p.role <> 'admin'),
+
+    /* Paid and active. Not trials, and not our own keys — this is the number
+       that gets read as "how many people are paying us". */
+    'active_licenses',    (select count(*) from public.licenses l
+                            join public.profiles p on p.id = l.user_id
+                            where p.role <> 'admin'
+                              and l.status = 'active'
+                              and l.plan_id <> 'trial'
+                              and (l.expires_at is null or l.expires_at > now())),
+
+    /* Kept separate on purpose, and shown separately. */
+    'trial_licenses',     (select count(*) from public.licenses l
+                            join public.profiles p on p.id = l.user_id
+                            where p.role <> 'admin'
+                              and l.status = 'active'
+                              and l.plan_id = 'trial'
+                              and (l.expires_at is null or l.expires_at > now())),
+
+    'total_activations',  (select count(*) from public.license_activations a
+                            join public.licenses l on l.id = a.license_id
+                            join public.profiles p on p.id = l.user_id
+                            where p.role <> 'admin'
+                              and a.status = 'active'),
+
+    'orders_paid',        (select count(*) from public.orders where status = 'paid'),
+    'revenue_cents',      (select coalesce(sum(amount_cents), 0) from public.orders
+                            where status = 'paid'),
+    'revenue_30d_cents',  (select coalesce(sum(amount_cents), 0) from public.orders
+                            where status = 'paid' and created_at > now() - interval '30 days'),
+
+    'plan_mix',           (select coalesce(json_agg(row_to_json(t)), '[]'::json) from (
+                             select l.plan_id, pl.name as plan_name, count(*) as count
+                             from public.licenses l
+                             join public.plans pl on pl.id = l.plan_id
+                             join public.profiles p on p.id = l.user_id
+                             where p.role <> 'admin'
+                             group by l.plan_id, pl.name
+                             order by count(*) desc
+                           ) t),
+
+    'signup_series',      (select coalesce(json_agg(row_to_json(s)), '[]'::json) from (
+                             select to_char(d.day, 'YYYY-MM-DD') as day,
+                                    count(pr.id)                 as count
+                             from generate_series(
+                               (current_date - interval '29 days')::date,
+                               current_date,
+                               interval '1 day'
+                             ) as d(day)
+                             left join public.profiles pr
+                               on pr.created_at::date = d.day::date
+                              and pr.role <> 'admin'
+                             group by d.day
+                             order by d.day
+                           ) s)
+  ) into result;
+
+  return result;
+end;
+$fn$;
+
+grant execute on function public.admin_overview() to authenticated;
