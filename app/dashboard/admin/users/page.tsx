@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Check, Download, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react'
 import { Panel, PanelHead, shortDate } from '@/components/dashboard/ui'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import {
   adminApproveAccount,
   adminListAccounts,
@@ -82,6 +83,8 @@ export default function AdminUsersPage() {
   const [busyId, setBusyId] = useState('')
   /** Unsaved price/paid edits, keyed by licence id. */
   const [draft, setDraft] = useState<Record<string, { price: string; paid: string }>>({})
+  /** The account a delete has been requested for, held until it is confirmed. */
+  const [pendingDelete, setPendingDelete] = useState<AdminAccount | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -496,19 +499,7 @@ export default function AdminUsersPage() {
                             type="button"
                             disabled={busyId === row.id}
                             title="Delete this account permanently"
-                            onClick={() => {
-                              // The one irreversible control on the screen, so it
-                              // asks — and names the account, because "are you
-                              // sure?" on a row you may have mis-clicked is not a
-                              // question anybody can answer accurately.
-                              if (
-                                window.confirm(
-                                  `Permanently delete ${row.email}? Their licence and every site activation on it go too. This cannot be undone.`,
-                                )
-                              ) {
-                                run(row.id, () => adminDeleteAccount(row.id))
-                              }
-                            }}
+                            onClick={() => setPendingDelete(row)}
                             className="rounded-lg border border-hairline px-2 py-1.5 text-ink-500 transition hover:border-[#f7d0d0] hover:bg-[#fdecec] hover:text-[#b3261e]"
                           >
                             <Trash2 size={13} strokeWidth={2.3} />
@@ -523,6 +514,34 @@ export default function AdminUsersPage() {
           </table>
         </div>
       </Panel>
+
+      {/* The one irreversible control on this screen, so it names the account
+          rather than asking "are you sure?" about a row that may have been
+          mis-clicked — that is not a question anybody can answer accurately. */}
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="Delete this account?"
+        busy={busyId === pendingDelete?.id}
+        confirmLabel="Delete permanently"
+        body={
+          <>
+            <strong className="font-bold text-ink-950">{pendingDelete?.email}</strong>{' '}
+            will be removed, along with their licence key and every site
+            activation on it. Any site still running that key stops being
+            licensed at its next check.
+            <span className="mt-2 block font-semibold text-[#b3261e]">
+              This cannot be undone.
+            </span>
+          </>
+        }
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          const target = pendingDelete
+          if (!target) return
+          setPendingDelete(null)
+          run(target.id, () => adminDeleteAccount(target.id))
+        }}
+      />
 
       <p className="mt-4 flex items-start gap-2 text-[0.82rem] leading-relaxed text-ink-500">
         <ShieldCheck size={14} className="mt-0.5 shrink-0 text-brand-500" />
