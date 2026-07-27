@@ -521,19 +521,22 @@ export type AdminAccount = {
   trial_ends_at: string | null
   created_at: string
   last_active_at: string | null
+  downloads_enabled: boolean
   license_id: string | null
   license_key: string | null
   plan_id: string | null
   license_status: string | null
+  expires_at: string | null
   price_cents: number
   paid_cents: number
   sites_allowed: number
+  /** Active activations on this licence — how many sites the key is really on. */
   sites_used: number
   /** owner never counts as revenue; partial is paid > 0 but short of the price. */
   payment_state: 'owner' | 'paid' | 'partial' | 'unpaid'
   /** `owner` outranks the rest: an owner holds no licence and is on no trial,
    *  and neither fact says anything about whether they can use the product. */
-  access_state: 'owner' | 'licensed' | 'trial' | 'trial_expired' | 'none'
+  access_state: 'owner' | 'licensed' | 'trial' | 'trial_expired' | 'revoked' | 'none'
 }
 
 export type AdminRevenue = {
@@ -573,7 +576,91 @@ export async function adminRevenue(): Promise<Result<AdminRevenue>> {
   return { ok: true, data: data as AdminRevenue }
 }
 
-/** Approve a pending account and start its trial clock. */
+/** The plans an administrator can put somebody on. */
+export const ASSIGNABLE_PLANS = [
+  { id: 'none', label: 'No licence' },
+  { id: 'trial', label: '7-day trial' },
+  { id: 'single', label: 'Single Site' },
+  { id: 'five', label: '5 Sites' },
+  { id: 'ten', label: '10 Sites' },
+  { id: 'agency', label: '100 Sites' },
+] as const
+
+/**
+ * Put an account on a plan, creating the licence if it does not have one.
+ *
+ * This is the only thing that issues a key. Approval does not, deliberately:
+ * approval means "a real person we have spoken to", a licence means "this
+ * person is entitled to the product", and they are not the same claim.
+ */
+export async function adminAssignPlan(
+  userId: string,
+  planId: string,
+  trialDays = 7,
+): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.rpc('assign_plan', {
+    p_user_id: userId,
+    p_plan_id: planId,
+    p_trial_days: trialDays,
+  })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not change that plan.') }
+  return { ok: true, data: null }
+}
+
+/** Show or hide the Downloads page for one account. */
+export async function adminSetDownloads(
+  userId: string,
+  enabled: boolean,
+): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.rpc('set_downloads_enabled', {
+    p_user_id: userId,
+    p_enabled: enabled,
+  })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not change that.') }
+  return { ok: true, data: null }
+}
+
+export async function adminDeleteAccount(userId: string): Promise<Result<null>> {
+  const blocked = guard<null>()
+  if (blocked) return blocked
+
+  const supabase = createClient()
+  const { error } = await supabase.rpc('delete_account', { p_user_id: userId })
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not delete that account.') }
+  return { ok: true, data: null }
+}
+
+/** What the signed-in customer's own dashboard is allowed to know about itself. */
+export async function getMyAccount(): Promise<
+  Result<{
+    downloads_enabled: boolean
+    approval_status: string
+    access_state: string
+    trial_ends_at: string | null
+  } | null>
+> {
+  const blocked = guard<null>()
+  if (blocked) return blocked as never
+
+  const supabase = createClient()
+  const { data, error } = await supabase.rpc('my_account')
+
+  if (error) return { ok: false, error: toMessage(error, 'Could not load your account.') }
+  return { ok: true, data: data ?? null }
+}
+
+/** Approve a pending account. Does not issue a licence — see adminAssignPlan. */
 export async function adminApproveAccount(
   userId: string,
   trialDays = 7,

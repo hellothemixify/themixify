@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, RefreshCw, Search, ShieldCheck } from 'lucide-react'
+import { Check, Download, RefreshCw, Search, ShieldCheck, Trash2 } from 'lucide-react'
 import { Panel, PanelHead, shortDate } from '@/components/dashboard/ui'
 import {
   adminApproveAccount,
@@ -10,6 +10,10 @@ import {
   adminSetAccountStatus,
   adminSetLicenseMoney,
   adminSetUserRole,
+  adminAssignPlan,
+  adminSetDownloads,
+  adminDeleteAccount,
+  ASSIGNABLE_PLANS,
   type AdminAccount,
   type AdminRevenue,
 } from '@/lib/queries'
@@ -52,6 +56,7 @@ const ACCESS_LABEL: Record<AdminAccount['access_state'], { text: string; tone: s
   licensed: { text: 'Licensed', tone: 'bg-[#eefaf1] text-[#15803d]' },
   trial: { text: 'On trial', tone: 'bg-brand-50 text-brand-700' },
   trial_expired: { text: 'Trial ended', tone: 'bg-[#fff5e6] text-[#b45309]' },
+  revoked: { text: 'Revoked', tone: 'bg-[#fdecec] text-[#b3261e]' },
   none: { text: 'No licence', tone: 'bg-ink-100 text-ink-500' },
 }
 
@@ -235,7 +240,7 @@ export default function AdminUsersPage() {
           <table className="w-full min-w-[1080px] border-collapse text-left">
             <thead>
               <tr className="border-b border-hairline bg-brand-50/50">
-                {['User', 'Access', 'Licence key', 'Price', 'Paid', 'State', 'Joined', 'Actions'].map(
+                {['User', 'Plan', 'Access', 'Licence key', 'Sites', 'Price', 'Paid', 'State', 'Downloads', 'Actions'].map(
                   (head) => (
                     <th
                       key={head}
@@ -292,6 +297,31 @@ export default function AdminUsersPage() {
                       </div>
                     </td>
 
+                    {/* The only control that issues a key. Approval does not — see
+                        assign_plan() in the schema for why those are different
+                        claims. */}
+                    <td className="px-4 py-3">
+                      <select
+                        value={row.plan_id ?? 'none'}
+                        disabled={busyId === row.id}
+                        onChange={(event) =>
+                          run(row.id, () => adminAssignPlan(row.id, event.target.value))
+                        }
+                        className="rounded-lg border border-hairline px-2 py-1 text-[0.78rem] font-semibold"
+                      >
+                        {ASSIGNABLE_PLANS.map((plan) => (
+                          <option key={plan.id} value={plan.id}>
+                            {plan.label}
+                          </option>
+                        ))}
+                      </select>
+                      {row.expires_at && (
+                        <span className="mt-1 block text-[0.7rem] text-ink-500">
+                          ends {shortDate(row.expires_at)}
+                        </span>
+                      )}
+                    </td>
+
                     <td className="px-4 py-3">
                       {/* Spelled out rather than mapped onto the generic status
                           chip. Reusing that vocabulary is how an owner ended up
@@ -313,6 +343,24 @@ export default function AdminUsersPage() {
                     <td className="px-4 py-3">
                       {row.license_key ? (
                         <code className="text-[0.76rem] text-ink-700">{row.license_key}</code>
+                      ) : (
+                        <span className="text-[0.8rem] text-ink-500">—</span>
+                      )}
+                    </td>
+
+                    {/* How many sites the key is really on, against what the plan
+                        allows. The pair matters more than either number: 3 of 1
+                        is the shape of a key that has been passed around. */}
+                    <td className="px-4 py-3">
+                      {row.license_id ? (
+                        <span
+                          className={`text-[0.84rem] font-bold ${
+                            row.sites_used > row.sites_allowed ? 'text-[#b3261e]' : 'text-ink-950'
+                          }`}
+                        >
+                          {row.sites_used}
+                          <span className="font-medium text-ink-500"> of {row.sites_allowed}</span>
+                        </span>
                       ) : (
                         <span className="text-[0.8rem] text-ink-500">—</span>
                       )}
@@ -358,8 +406,26 @@ export default function AdminUsersPage() {
                       </span>
                     </td>
 
-                    <td className="px-4 py-3 text-[0.8rem] text-ink-500">
-                      {shortDate(row.created_at)}
+                    {/* Off by default. Some installs we do by hand for customers
+                        we would rather not hand a zip to, and "they could
+                        download it but we trust them" is not a control. */}
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        disabled={busyId === row.id}
+                        onClick={() =>
+                          run(row.id, () => adminSetDownloads(row.id, !row.downloads_enabled))
+                        }
+                        aria-pressed={row.downloads_enabled}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.74rem] font-bold transition ${
+                          row.downloads_enabled
+                            ? 'bg-[#eefaf1] text-[#15803d] hover:bg-[#dcf3e3]'
+                            : 'bg-ink-100 text-ink-500 hover:bg-ink-100/70'
+                        }`}
+                      >
+                        <Download size={12} strokeWidth={2.6} />
+                        {row.downloads_enabled ? 'Shown' : 'Hidden'}
+                      </button>
                     </td>
 
                     <td className="px-4 py-3">
@@ -424,6 +490,30 @@ export default function AdminUsersPage() {
                           <option value="user">user</option>
                           <option value="admin">admin</option>
                         </select>
+
+                        {row.role !== 'admin' && (
+                          <button
+                            type="button"
+                            disabled={busyId === row.id}
+                            title="Delete this account permanently"
+                            onClick={() => {
+                              // The one irreversible control on the screen, so it
+                              // asks — and names the account, because "are you
+                              // sure?" on a row you may have mis-clicked is not a
+                              // question anybody can answer accurately.
+                              if (
+                                window.confirm(
+                                  `Permanently delete ${row.email}? Their licence and every site activation on it go too. This cannot be undone.`,
+                                )
+                              ) {
+                                run(row.id, () => adminDeleteAccount(row.id))
+                              }
+                            }}
+                            className="rounded-lg border border-hairline px-2 py-1.5 text-ink-500 transition hover:border-[#f7d0d0] hover:bg-[#fdecec] hover:text-[#b3261e]"
+                          >
+                            <Trash2 size={13} strokeWidth={2.3} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

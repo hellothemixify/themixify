@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { LogoLockup } from '@/components/ui/Logo'
 import { PendingApproval } from '@/components/dashboard/PendingApproval'
-import { getCurrentProfile, signOut, type Profile } from '@/lib/queries'
+import { getCurrentProfile, getMyAccount, signOut, type Profile } from '@/lib/queries'
 import { isSupabaseConfigured } from '@/lib/supabase/client'
 
 /**
@@ -85,6 +85,10 @@ export default function DashboardLayout({
   const router = useRouter()
   const pathname = usePathname()
   const [profile, setProfile] = useState<Profile | null>(null)
+  // Downloads is hidden unless an administrator has turned it on for this
+  // account. Read from the database rather than inferred from the licence:
+  // some customers are licensed and still installed by hand.
+  const [downloads, setDownloads] = useState(false)
   const [state, setState] = useState<'loading' | 'ready' | 'anon' | 'offline'>(
     'loading',
   )
@@ -102,6 +106,11 @@ export default function DashboardLayout({
       if (result.ok && result.data) {
         setProfile(result.data)
         setState('ready')
+        getMyAccount().then((account) => {
+          if (!cancelled && account.ok && account.data) {
+            setDownloads(Boolean(account.data.downloads_enabled))
+          }
+        })
       } else {
         setState('anon')
       }
@@ -222,7 +231,10 @@ export default function DashboardLayout({
                 Account
               </p>
               <nav className="space-y-0.5">
-                {ACCOUNT_LINKS.map((link) => (
+                {ACCOUNT_LINKS.filter(
+                  (link) =>
+                    link.href !== '/dashboard/downloads' || downloads || isAdmin,
+                ).map((link) => (
                   <SidebarLink
                     key={link.href}
                     {...link}
