@@ -50,6 +50,7 @@ type Filter =
   | 'paid'
   | 'partial'
   | 'unpaid'
+  | 'none'
 
 /** What each access state should actually say to a human. */
 const ACCESS_LABEL: Record<AdminAccount['access_state'], { text: string; tone: string }> = {
@@ -61,6 +62,17 @@ const ACCESS_LABEL: Record<AdminAccount['access_state'], { text: string; tone: s
   none: { text: 'No licence', tone: 'bg-ink-100 text-ink-500' },
 }
 
+/** Every financial state, spelled out. A lookup rather than a ternary chain,
+ *  because the chain's final `else` is what let a trial read as an owner. */
+const PAYMENT_LABEL: Record<AdminAccount['payment_state'], { text: string; tone: string }> = {
+  owner:   { text: 'Owner',    tone: 'bg-brand-100 text-brand-700' },
+  paid:    { text: 'Paid',     tone: 'bg-[#eefaf1] text-[#15803d]' },
+  partial: { text: 'Part-paid',tone: 'bg-[#fff5e6] text-[#b45309]' },
+  unpaid:  { text: 'Unpaid',   tone: 'bg-[#fdecec] text-[#b3261e]' },
+  trial:   { text: 'Trial',    tone: 'bg-brand-50 text-brand-700' },
+  none:    { text: '—',        tone: 'bg-ink-100 text-ink-500' },
+}
+
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'all', label: 'Everyone' },
   { value: 'pending', label: 'Awaiting approval' },
@@ -70,6 +82,7 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: 'paid', label: 'Paid in full' },
   { value: 'partial', label: 'Partial (part-paid)' },
   { value: 'unpaid', label: 'Unpaid' },
+  { value: 'none', label: 'No licence' },
   { value: 'owner', label: 'Owner' },
 ]
 
@@ -395,17 +408,9 @@ export default function AdminUsersPage() {
 
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[0.7rem] font-bold uppercase tracking-[0.06em] ${
-                          row.payment_state === 'owner'
-                            ? 'bg-brand-100 text-brand-700'
-                            : row.payment_state === 'paid'
-                              ? 'bg-[#eefaf1] text-[#15803d]'
-                              : row.payment_state === 'partial'
-                                ? 'bg-[#fff5e6] text-[#b45309]'
-                                : 'bg-ink-100 text-ink-500'
-                        }`}
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[0.7rem] font-bold uppercase tracking-[0.06em] ${PAYMENT_LABEL[row.payment_state].tone}`}
                       >
-                        {row.payment_state}
+                        {PAYMENT_LABEL[row.payment_state].text}
                       </span>
                     </td>
 

@@ -1736,10 +1736,24 @@ select
     select count(*) from public.license_activations a
      where a.license_id = l.id and a.status = 'active'
   )                                   as sites_used,
+  /* What this account is, financially.
+
+     The earlier rule was "a price of zero means owner". It was written with the
+     two partners in mind and quietly swallowed two other groups: everyone on a
+     trial, because a trial is free by definition and so priced at zero, and
+     everyone with no licence at all, because coalesce(null, 0) is zero too.
+     Both were counted as owners — people who had never been given anything,
+     listed beside the people who own the company.
+
+     An owner is specifically a real, paid plan deliberately priced at zero. A
+     trial is not that, and an empty row is not a financial state at all. */
   case
-    when p.role = 'admin' or coalesce(l.price_cents, 0) = 0 then 'owner'
-    when coalesce(l.paid_cents, 0) >= coalesce(l.price_cents, 0) then 'paid'
-    when coalesce(l.paid_cents, 0) > 0                          then 'partial'
+    when p.role = 'admin'              then 'owner'
+    when l.id is null                  then 'none'
+    when l.plan_id = 'trial'           then 'trial'
+    when l.price_cents = 0             then 'owner'
+    when l.paid_cents >= l.price_cents then 'paid'
+    when l.paid_cents > 0              then 'partial'
     else 'unpaid'
   end                                 as payment_state,
   case
@@ -1861,6 +1875,8 @@ as $fn$
       'paid',                count(*) filter (where payment_state = 'paid'),
       'partial',             count(*) filter (where payment_state = 'partial'),
       'unpaid',              count(*) filter (where payment_state = 'unpaid'),
+      'no_licence',          count(*) filter (where payment_state = 'none'),
+      'trialling',           count(*) filter (where payment_state = 'trial'),
       'pending',             count(*) filter (where approval_status = 'pending'),
       'on_trial',            count(*) filter (where access_state = 'trial'),
       'trial_expired',       count(*) filter (where access_state = 'trial_expired'),

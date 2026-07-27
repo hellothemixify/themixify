@@ -533,7 +533,9 @@ export type AdminAccount = {
   /** Active activations on this licence — how many sites the key is really on. */
   sites_used: number
   /** owner never counts as revenue; partial is paid > 0 but short of the price. */
-  payment_state: 'owner' | 'paid' | 'partial' | 'unpaid'
+  /** `trial` and `none` are not owners: a trial is free by design and an
+   *  account with no licence has no financial state at all. */
+  payment_state: 'owner' | 'paid' | 'partial' | 'unpaid' | 'trial' | 'none'
   /** `owner` outranks the rest: an owner holds no licence and is on no trial,
    *  and neither fact says anything about whether they can use the product. */
   access_state: 'owner' | 'licensed' | 'trial' | 'trial_expired' | 'revoked' | 'none'
