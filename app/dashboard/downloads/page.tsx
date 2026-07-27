@@ -50,7 +50,7 @@ export default function DownloadsPage() {
     <>
       <PanelHead
         title="Downloads"
-        subtitle="Every published build. Your licence key unlocks in-place updates from wp-admin, so this is only needed for a first install or a manual rollback."
+        subtitle="Every published build. Once the theme is installed and your licence key is entered, updates appear under Dashboard → Updates in wp-admin and install in one click — so this page is for the first install, or for rolling back to an older build by hand."
       />
 
       {error && (
