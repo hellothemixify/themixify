@@ -1699,8 +1699,19 @@ on conflict (id) do update
       price_cents = excluded.price_cents;
 
 /* The admin view gains the two things the screen was missing: how many sites a
-   licence is actually on, and whether downloads are visible to this account. */
-create or replace view public.admin_accounts as
+   licence is actually on, and whether downloads are visible to this account.
+   
+   Dropped and rebuilt rather than replaced. CREATE OR REPLACE VIEW may only
+   append columns at the end — it cannot insert one in the middle, and inserting
+   downloads_enabled before created_at shifts every column after it, which
+   Postgres reports as trying to rename created_at. The two functions that read
+   the view have to go first: admin_list_accounts returns setof its row type, so
+   it holds a hard dependency on the shape. All three are recreated below. */
+drop function if exists public.admin_list_accounts(text);
+drop function if exists public.admin_revenue();
+drop view if exists public.admin_accounts;
+
+create view public.admin_accounts as
 select
   p.id,
   p.email,
@@ -1829,3 +1840,34 @@ as $fn$
 $fn$;
 
 grant execute on function public.my_account() to authenticated;
+
+/* Recreated because the view rebuild above had to drop it. Unchanged otherwise:
+   income is the sum of what arrived, and owners are not customers. */
+create or replace function public.admin_revenue()
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $fn$
+  select case when not public.is_admin() then jsonb_build_object('error', 'Not authorised')
+  else (
+    select jsonb_build_object(
+      'total_paid_cents',    coalesce(sum(paid_cents)  filter (where payment_state <> 'owner'), 0),
+      'total_quoted_cents',  coalesce(sum(price_cents) filter (where payment_state <> 'owner'), 0),
+      'outstanding_cents',   coalesce(sum(greatest(price_cents - paid_cents, 0))
+                                        filter (where payment_state <> 'owner'), 0),
+      'accounts',            count(*),
+      'owners',              count(*) filter (where payment_state = 'owner'),
+      'paid',                count(*) filter (where payment_state = 'paid'),
+      'partial',             count(*) filter (where payment_state = 'partial'),
+      'unpaid',              count(*) filter (where payment_state = 'unpaid'),
+      'pending',             count(*) filter (where approval_status = 'pending'),
+      'on_trial',            count(*) filter (where access_state = 'trial'),
+      'trial_expired',       count(*) filter (where access_state = 'trial_expired'),
+      'licensed',            count(*) filter (where access_state = 'licensed')
+    )
+    from public.admin_accounts
+  ) end;
+$fn$;
+
+grant execute on function public.admin_revenue() to authenticated;
