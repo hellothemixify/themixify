@@ -1547,3 +1547,285 @@ left join lateral (
 ) l on true;
 
 revoke all on public.admin_accounts from anon, authenticated;
+/* ==========================================================================
+   PLANS ARE ASSIGNED, NOT EARNED
+   ==========================================================================
+   Approving an account used to issue a licence key with it. That was wrong:
+   approval says "this is a real person we have spoken to", and a licence says
+   "this person has paid". Collapsing the two handed a free key to everyone who
+   got through the door.
+
+   Approval now does exactly one thing — it lets somebody sign in. The licence
+   is created when an administrator assigns a plan, which is the moment a human
+   has decided what this customer is entitled to. A trial is just a plan with an
+   expiry, so it travels the same road as every other one and needs no separate
+   machinery.
+   ========================================================================== */
+
+/* Approval no longer touches licences. */
+create or replace function public.approve_account(p_user_id uuid, p_trial_days integer default 7)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  /* p_trial_days is accepted and ignored, so older callers do not break. The
+     trial clock now starts when a trial plan is assigned, not when somebody is
+     let through the door — see assign_plan(). */
+  perform p_trial_days;
+
+  update public.profiles
+     set approval_status = 'approved',
+         approved_at     = coalesce(approved_at, now()),
+         approved_by     = auth.uid()
+   where id = p_user_id;
+end;
+$fn$;
+
+grant execute on function public.approve_account(uuid, integer) to authenticated;
+
+/* Who may see the Downloads page ---------------------------------------------
+   Off by default and turned on per account. Some installs are done by hand for
+   customers we would rather not hand a zip to, and "they can download it but we
+   trust them not to" is not a control. */
+alter table public.profiles
+  add column if not exists downloads_enabled boolean not null default false;
+
+create or replace function public.set_downloads_enabled(p_user_id uuid, p_enabled boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  update public.profiles set downloads_enabled = coalesce(p_enabled, false) where id = p_user_id;
+end;
+$fn$;
+
+grant execute on function public.set_downloads_enabled(uuid, boolean) to authenticated;
+
+/* Assign a plan ---------------------------------------------------------------
+   Creates the licence if there is not one yet, otherwise moves the existing one
+   so the customer keeps the key they have already pasted into their site.
+
+   Passing 'none' removes the licence entirely, which is the only honest way to
+   express "this account should not have one" — leaving a revoked row behind
+   means the next person to read the screen has to know that revoked and absent
+   mean different things. */
+create or replace function public.assign_plan(
+  p_user_id uuid,
+  p_plan_id text,
+  p_trial_days integer default 7
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+declare
+  v_sites   integer;
+  v_license public.licenses%rowtype;
+  v_expires timestamptz;
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  select * into v_license
+    from public.licenses where user_id = p_user_id
+   order by created_at desc limit 1;
+
+  if p_plan_id = 'none' then
+    if v_license.id is not null then
+      delete from public.license_activations where license_id = v_license.id;
+      delete from public.licenses where id = v_license.id;
+    end if;
+    update public.profiles set trial_ends_at = null where id = p_user_id;
+    return;
+  end if;
+
+  select sites_allowed into v_sites from public.plans where id = p_plan_id;
+  if v_sites is null then
+    raise exception 'Unknown plan';
+  end if;
+
+  /* Only a trial carries an expiry. Everything else is sold outright — this is
+     a lifetime licence, and an expiry date on it would be a lie. */
+  if p_plan_id = 'trial' then
+    v_expires := now() + make_interval(days => greatest(coalesce(p_trial_days, 7), 1));
+  else
+    v_expires := null;
+  end if;
+
+  if v_license.id is null then
+    insert into public.licenses
+      (license_key, user_id, plan_id, sites_allowed, status, price_cents, paid_cents, expires_at)
+    values
+      (public.generate_license_key(), p_user_id, p_plan_id, v_sites, 'active', 0, 0, v_expires);
+  else
+    update public.licenses
+       set plan_id       = p_plan_id,
+           sites_allowed = v_sites,
+           status        = 'active',
+           expires_at    = v_expires
+     where id = v_license.id;
+  end if;
+
+  update public.profiles set trial_ends_at = v_expires where id = p_user_id;
+end;
+$fn$;
+
+grant execute on function public.assign_plan(uuid, text, integer) to authenticated;
+
+/* The plans an administrator can pick from. 'trial' already exists; these are
+   the paid tiers, matching what the site sells. */
+insert into public.plans (id, name, sites_allowed, price_cents, sort_order, is_active) values
+  ('single', 'Single Site', 1,   6900,  1, true),
+  ('five',   '5 Sites',     5,   9900,  2, true),
+  ('ten',    '10 Sites',    10, 14900,  3, true),
+  ('agency', '100 Sites',   100, 49900, 4, true)
+on conflict (id) do update
+  set name = excluded.name,
+      sites_allowed = excluded.sites_allowed,
+      price_cents = excluded.price_cents;
+
+/* The admin view gains the two things the screen was missing: how many sites a
+   licence is actually on, and whether downloads are visible to this account. */
+create or replace view public.admin_accounts as
+select
+  p.id,
+  p.email,
+  p.full_name,
+  p.phone,
+  p.role,
+  p.approval_status,
+  p.approved_at,
+  p.trial_ends_at,
+  p.downloads_enabled,
+  p.created_at,
+  p.last_active_at,
+  l.id                                as license_id,
+  l.license_key,
+  l.plan_id,
+  l.status                            as license_status,
+  l.expires_at,
+  coalesce(l.price_cents, 0)          as price_cents,
+  coalesce(l.paid_cents, 0)           as paid_cents,
+  coalesce(l.sites_allowed, 0)        as sites_allowed,
+  (
+    select count(*) from public.license_activations a
+     where a.license_id = l.id and a.status = 'active'
+  )                                   as sites_used,
+  case
+    when p.role = 'admin' or coalesce(l.price_cents, 0) = 0 then 'owner'
+    when coalesce(l.paid_cents, 0) >= coalesce(l.price_cents, 0) then 'paid'
+    when coalesce(l.paid_cents, 0) > 0                          then 'partial'
+    else 'unpaid'
+  end                                 as payment_state,
+  case
+    when p.role = 'admin' then 'owner'
+    when l.id is null then 'none'
+    when l.status <> 'active' then 'revoked'
+    when l.expires_at is not null and l.expires_at <= now() then 'trial_expired'
+    when l.expires_at is not null then 'trial'
+    else 'licensed'
+  end                                 as access_state
+from public.profiles p
+left join lateral (
+  select * from public.licenses
+   where user_id = p.id
+   order by created_at desc
+   limit 1
+) l on true;
+
+revoke all on public.admin_accounts from anon, authenticated;
+
+/* admin_list_accounts returns setof the view, so it has to be rebuilt whenever
+   the view's column list changes. */
+create or replace function public.admin_list_accounts(p_search text default '')
+returns setof public.admin_accounts
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  return query
+    select * from public.admin_accounts
+     where coalesce(p_search, '') = ''
+        or email ilike '%' || p_search || '%'
+        or coalesce(full_name, '')  ilike '%' || p_search || '%'
+        or coalesce(phone, '')      ilike '%' || p_search || '%'
+        or coalesce(license_key, '') ilike '%' || p_search || '%'
+     order by created_at desc;
+end;
+$fn$;
+
+grant execute on function public.admin_list_accounts(text) to authenticated;
+
+/* Delete an account outright ---------------------------------------------------
+   Removing the auth user cascades to the profile, the licence and its
+   activations. Kept as a function so the rule "an admin cannot delete
+   themselves" lives next to the delete rather than in a button's disabled
+   attribute. */
+create or replace function public.delete_account(p_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorised';
+  end if;
+
+  if p_user_id = auth.uid() then
+    raise exception 'You cannot delete your own account';
+  end if;
+
+  delete from auth.users where id = p_user_id;
+end;
+$fn$;
+
+grant execute on function public.delete_account(uuid) to authenticated;
+
+/* What the customer's own dashboard is allowed to know about itself. */
+create or replace function public.my_account()
+returns jsonb
+language sql
+security definer
+set search_path = public
+as $fn$
+  select jsonb_build_object(
+    'downloads_enabled', coalesce(p.downloads_enabled, false),
+    'approval_status',   p.approval_status,
+    'access_state',      case
+                           when p.role = 'admin' then 'owner'
+                           when l.id is null then 'none'
+                           when l.status <> 'active' then 'revoked'
+                           when l.expires_at is not null and l.expires_at <= now() then 'trial_expired'
+                           when l.expires_at is not null then 'trial'
+                           else 'licensed'
+                         end,
+    'trial_ends_at',     l.expires_at
+  )
+  from public.profiles p
+  left join lateral (
+    select * from public.licenses where user_id = p.id order by created_at desc limit 1
+  ) l on true
+  where p.id = auth.uid();
+$fn$;
+
+grant execute on function public.my_account() to authenticated;
