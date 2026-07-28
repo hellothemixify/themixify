@@ -1,0 +1,77 @@
+# Deploy themixify.com on every push to main.
+#
+# This replaces the Cloudflare dashboard's Git connection, which tied
+# deployment to a GitHub account we can no longer sign into. Doing it here
+# means the deployment lives in version control with the code, works from
+# whichever repository is currently the source of truth, and can be moved to
+# another GitHub account by pushing the file rather than by clicking through an
+# OAuth flow that has to be re-authorised.
+#
+# Two values are needed in the repository's Settings → Secrets and variables →
+# Actions. Both are the customer's own credentials and neither belongs in this
+# file:
+#
+#   CLOUDFLARE_API_TOKEN   Cloudflare → My Profile → API Tokens → Create Token
+#                          → "Edit Cloudflare Workers" template. Scope it to
+#                          this account only.
+#   SUPABASE_ANON_KEY      The publishable anon key. It is public by design —
+#                          it is in the browser bundle already — but it is kept
+#                          out of the file so rotating it is a settings change
+#                          rather than a commit.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Lets a deploy be re-run from the Actions tab without an empty commit.
+  workflow_dispatch:
+
+# Two pushes in quick succession should not race each other onto the same
+# Worker. The newer one wins; the older is cancelled before it can overwrite it.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The anon key is read at build time by the client bundle, so it has to
+      # be present here rather than only as a Worker secret.
+      - name: Build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ynwxgdjbhjbfgwwuyqxt.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: npx opennextjs-cloudflare build
+
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: c43d9ba86a3d1062e39830d397fbbef1
+        run: npx wrangler deploy
+
+      # A deploy that reports success while the site is down is worse than a
+      # deploy that fails, so the run does not go green until the origin has
+      # actually answered.
+      - name: Verify the site answers
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" https://themixify.com/)
+            echo "attempt $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "themixify.com did not return 200 after the deploy"
+          exit 1
